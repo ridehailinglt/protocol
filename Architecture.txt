@@ -1,46 +1,174 @@
-Prompt 1: SolidJS Progressive Web App (Asset Canister)
-Context for AI: Build a Web3 frontend for a decentralized ride-hailing protocol deployed 100% on-chain on the Internet Computer (ICP). Do not use external Web2 databases or centralized CDNs. Architecture & Stack:
-Use SolidJS for a Single Page Application (SPA).
-Configure as a Progressive Web App (PWA) with a Manifest.json and a Service Worker for offline caching of the UI shell, active ride state, and last known driver list.
-Authentication must strictly use Internet Identity (WebAuthn) generating a Principal ID. Core Client State (Stores):
-Create reactive SolidJS stores: authStore, rideStore, driverStore, governanceStore, and reputationStore. Network Logic:
-Implement a polling mechanism using lightweight query calls every 2–3 seconds to fetch status updates, falling back to batch-submitting update calls if the connection drops and reconnects.
-Economic and state-changing actions (e.g., accepting a ride) must strictly use update calls.
+## Prompt 1: SolidJS Progressive Web App (Asset Canister)
 
-Prompt 2: Root Governance & Voting Point Canister
-Context for AI: Build the core governance brain of the protocol. Voting Point Ledger Logic:
-No hard-capped tokens. Implement a Voting Point ledger where 1 completed trip = 1 Voting Point minted to the driver's Principal ID.
-Implement a 10% monthly inflation function that mathematically inflates the total supply of points, ensuring recent activity carries more voting weight than past activity.
-Implement a Security Faucet for protocol founders that grants initial voting power but uses a mathematical decay function (e.g., weight = base_tokens × e^(-kt)) to diminish their voting power to exactly 0 over a 5-year period. Governance Logic:
-Implement proposal submission structs for: protocol parameter changes, sustainability fee adjustments (0.1% - 1%), algorithm modifications, driver bans, and treasury allocations.
-Implement maximum voting caps per identity and slashing functions for malicious proposals.
+**Context for AI:**  
+Build a Web3 frontend for a decentralized ride-hailing protocol deployed 100% on-chain on the Internet Computer using the :contentReference[oaicite:0]{index=0}. Do not use external Web2 databases or centralized CDNs.
 
-Prompt 3: Registry & Identity Canister
-Context for AI: Build the canonical registry for network participants. State & Functions:
-Maintain a mapping of Principal -> DriverProfile.
-Store driver KYC and license verifications strictly as on-chain hashes (do not store raw PII on-chain).
-Implement a function to deterministically assign registered drivers to a specific regional geographic shard (e.g., VilniusMatching).
+### Architecture & Stack
+- Use SolidJS for a Single Page Application (SPA).
+- Configure as a Progressive Web App (PWA):
+  - Include `manifest.json`.
+  - Implement a Service Worker for offline caching of:
+    - UI shell.
+    - Active ride state.
+    - Last known driver list.
+- Authentication must strictly use :contentReference[oaicite:1]{index=1} (WebAuthn), generating a Principal ID.
 
-Prompt 4: Ride Matching Canister (Sharded by City)
-Context for AI: Build the high-frequency ride matching engine. This canister will be duplicated per city to prevent state bloat. Ride State Machine:
-Implement an exact state machine transition flow strictly via update calls: RIDE_REQUESTED → DRIVER_RESERVED → DRIVER_ACCEPTED → DRIVER_ARRIVED → RIDE_STARTED → RIDE_COMPLETED → SETTLED. Matching Logic:
-Implement a radius filter algorithm based on driver availability flags and minimum reputation thresholds.
-Location Privacy: Do not store full GPS traces. Accept periodic location updates from drivers as a cryptographic hash: hash(lat, lon, timestamp). Data Management:
-Store only active rides in memory. Upon reaching the SETTLED state, automatically invoke an inter-canister call to move the data to a time-sharded Archive Canister to preserve memory limits.
+### Core Client State (Stores)
+Create reactive SolidJS stores:
+- `authStore`
+- `rideStore`
+- `driverStore`
+- `governanceStore`
+- `reputationStore`
 
-Prompt 5: Treasury & Escrow Canister
-Context for AI: Build the financial settlement layer of the protocol. Core Logic:
-Implement an escrow function: Riders lock the estimated fare into the Treasury before RIDE_STARTED.
-Upon SETTLED, split the funds: instantly release the payment to the driver, and deduct a governance-defined Sustainability Fee (0.1% to 1%).
-Pool the Sustainability Fee into a public treasury balance used for automated cycle top-ups for other canisters and developer grants.
+### Network Logic
+- Implement polling via lightweight query calls every 2–3 seconds for status updates.
+- If the connection drops:
+  - Batch-submit queued update calls upon reconnection.
+- All economic and state-changing actions (e.g., accepting a ride) must strictly use update calls.
 
-Prompt 6: Reputation & Arbitration Canister
-Context for AI: Build the immutable reputation and community justice system. Reputation State:
-Store an append-only log of rating events. Implement an algorithm to compute weighted scores based on recent ride history. Arbitration State:
-Implement dispute case creation functions allowing users to upload evidence references (hashes only).
-Implement a randomized jury selection algorithm that picks active drivers to vote on disputes. Include a slashing mechanism for malicious actors and time-bounded voting limits.
 
-Prompt 7: On-Chain AI Canister (Optional but Recommended)
-Context for AI: Build a canister utilizing DFINITY's on-chain AI execution environment. Inference Tasks:
-Fraud Detection: Implement a model to accept inputs (ride pattern anomalies, cancellation frequency, rating variance, geolocation hash deviations) and output a continuous fraud score to automatically flag suspicious accounts.
-Surge Pricing: Output dynamic surge multipliers based on zone imbalance detection, subject to limits set by the Governance Canister.
+---
+
+## Prompt 2: Root Governance & Voting Point Canister
+
+**Context for AI:**  
+Build the core governance brain of the protocol.
+
+### Voting Point Ledger Logic
+- No hard-capped tokens.
+- Implement a Voting Point ledger:
+  - 1 completed trip = 1 Voting Point minted to the driver’s Principal ID.
+- Implement a 10% monthly inflation function:
+  - Inflate total supply mathematically.
+  - Ensure recent activity carries more voting weight than historical activity.
+- Implement a Security Faucet for founders:
+  - Grants initial voting power.
+  - Voting weight decays to exactly 0 over 5 years using:
+    - `weight = base_tokens × e^(-kt)`
+
+### Governance Logic
+Implement proposal submission structs for:
+- Protocol parameter changes.
+- Sustainability fee adjustments (0.1%–1%).
+- Algorithm modifications.
+- Driver bans.
+- Treasury allocations.
+
+Additional requirements:
+- Maximum voting caps per identity.
+- Slashing functions for malicious proposals.
+
+
+---
+
+## Prompt 3: Registry & Identity Canister
+
+**Context for AI:**  
+Build the canonical registry for network participants.
+
+### State & Functions
+- Maintain mapping:
+  - `Principal -> DriverProfile`
+- Store driver KYC and license verifications strictly as on-chain hashes.
+  - Do not store raw PII.
+- Implement deterministic regional sharding:
+  - Example shard: `VilniusMatching`
+  - Driver assignment must be algorithmically reproducible.
+
+
+---
+
+## Prompt 4: Ride Matching Canister (Sharded by City)
+
+**Context for AI:**  
+Build the high-frequency ride matching engine. Duplicate per city to prevent state bloat.
+
+### Ride State Machine
+Strict transition flow via update calls only:
+
+`RIDE_REQUESTED → DRIVER_RESERVED → DRIVER_ACCEPTED → DRIVER_ARRIVED → RIDE_STARTED → RIDE_COMPLETED → SETTLED`
+
+### Matching Logic
+- Radius filter algorithm.
+- Use:
+  - Driver availability flags.
+  - Minimum reputation thresholds.
+
+### Location Privacy
+- Do not store full GPS traces.
+- Accept periodic location updates as:
+  - `hash(lat, lon, timestamp)`
+
+### Data Management
+- Store only active rides in memory.
+- Upon `SETTLED`:
+  - Trigger inter-canister call.
+  - Move data to a time-sharded Archive Canister.
+
+
+---
+
+## Prompt 5: Treasury & Escrow Canister
+
+**Context for AI:**  
+Build the financial settlement layer.
+
+### Core Logic
+- Implement escrow:
+  - Rider locks estimated fare before `RIDE_STARTED`.
+- Upon `SETTLED`:
+  - Release payment instantly to driver.
+  - Deduct Sustainability Fee (0.1%–1%) defined by governance.
+- Pool Sustainability Fees:
+  - Public treasury balance.
+  - Used for:
+    - Automated cycle top-ups.
+    - Developer grants.
+
+
+---
+
+## Prompt 6: Reputation & Arbitration Canister
+
+**Context for AI:**  
+Build the immutable reputation and community justice system.
+
+### Reputation State
+- Append-only log of rating events.
+- Weighted score algorithm:
+  - Emphasize recent ride history.
+
+### Arbitration State
+- Dispute case creation:
+  - Evidence references stored as hashes only.
+- Randomized jury selection:
+  - Select active drivers.
+- Include:
+  - Slashing mechanism.
+  - Time-bounded voting windows.
+
+
+---
+
+## Prompt 7: On-Chain AI Canister (Optional but Recommended)
+
+**Context for AI:**  
+Build a canister utilizing DFINITY’s on-chain AI execution environment on the :contentReference[oaicite:2]{index=2}.
+
+### Inference Tasks
+
+**Fraud Detection**
+- Inputs:
+  - Ride pattern anomalies.
+  - Cancellation frequency.
+  - Rating variance.
+  - Geolocation hash deviations.
+- Output:
+  - Continuous fraud score.
+  - Automatic flagging of suspicious accounts.
+
+**Surge Pricing**
+- Detect zone imbalance.
+- Output dynamic surge multipliers.
+- Must respect limits set by Governance Canister.
