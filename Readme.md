@@ -2,6 +2,10 @@
 
 A fully decentralized ride-hailing protocol built on the Internet Computer (ICP) that replaces centralized intermediaries with a driver-owned governance and execution model. This protocol aims to eliminate the 10-30% commission rates seen in centralized platforms, opting instead for a near-zero sustainability fee to cover network cycles and development.
 
+Group on FB: www.facebook.com/groups/ridehailing/
+
+Page on ICP: https://4nbfz-saaaa-aaaas-qfbea-cai.icp0.io/
+
 ## Project Structure
 
 The protocol comprises several core components designed for infinite scalability, decentralized governance, and a secure operational flow.
