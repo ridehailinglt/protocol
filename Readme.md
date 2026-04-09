@@ -9,7 +9,7 @@ Page on ICP: https://4nbfz-saaaa-aaaas-qfbea-cai.icp0.io/
 ## Current progress
 
 Markup documentation for AI generated code progress:
-1. Gateway canister - done
+> 1. Gateway canister - done `canister_gateway_v1.md`
 2. Governance canister - in progress
 3. Registry canister - not started
 4. Matching canister - not started
@@ -19,7 +19,7 @@ Markup documentation for AI generated code progress:
 
 You can support this development by donating ICP (Internet Computer Protocol) tokens to the following address:
 
-cf538348dc493ade831bfdb138ac68d6299bbc964cee4f2a1984aa5123774765
+`cf538348dc493ade831bfdb138ac68d6299bbc964cee4f2a1984aa5123774765`
 
 Donated: 0 ICP (last updated 2026-04-09)
 
