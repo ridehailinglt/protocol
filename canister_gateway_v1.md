@@ -30,8 +30,28 @@ Key design properties:
 
 ---
 
-## 3. Type Definitions
+## 3. Definitions
 
+## 3.1 Constants
+```motoko
+module Constants {
+    public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+    public let GATEWAY_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
+    public let CANISTER_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
+
+    public let QUARANTINE_EXPIRY_PERIOD : Nat64 = 6 * 30 * 24 * 60 * 60;  // 6 months in seconds
+    
+    public let GATEWAY_SYNC_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+    public let GATEWAY_SYNC_ALL_PERIOD : Nat64 = 168 * 60 * 60;  // 168 hours in seconds
+    public let CLONE_SYNC_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+    
+    public let GATEWAY_SYNC_LIMIT : Nat64 = 4;  // 4 calls in 24 hours
+    public let GATEWAY_SYNC_ALL_LIMIT : Nat64 = 2;  // 2 calls in 168 hours
+    public let CLONE_SYNC_LIMIT : Nat64 = 1;  // 1 call in 24 hours
+}
+```
+
+## 3.2 Types
 ```motoko
 module Types {
 
@@ -52,7 +72,7 @@ module Types {
 
     /// Economic commitment required before a Gateway or Clone is accepted.
     /// If registration is never completed, the deposited funds are transferred
-    /// to the canister owner after 30 days (spam prevention, processed by worker.mo).
+    /// to the canister owner after DEPOSIT_EXPIRY_PERIOD (30) days (spam prevention, processed by worker.mo).
     public type DepositStatus = {
         #pending;
         #paid;
@@ -151,7 +171,7 @@ module Types {
         registeredAt     : Timestamp;
         lastSyncAt       : Timestamp;
         counterNotSynced : Nat;        // Incremented +1 per day by worker.mo if no sync received. Max meaningful value: 30.
-        isActive         : Bool;
+        isActive        : Bool;
     };
 
     /// Public-facing record shared during sync and registration responses.
@@ -208,6 +228,58 @@ module Types {
         cloneRegister           : Nat;
         cloneSync               : Nat;
     };
+
+    // ==========================================
+    // --- 7. GOVERNANCE TYPES  ---
+    // ==========================================
+
+    // Used from Governance canister to change gateway canister fees for gateway and for canister registration
+    GatewayGovernanceUpdateFeeContract = {
+        gatewayRegistrationFee : Nat;
+        canisterRegistrationFee : Nat;
+        depositExpiryPeriod : Nat;
+    }
+
+    GatewayGovernanceUpdateFeeResponse = {
+        #ok : { fees : GatewayGovernanceUpdateFeeContract }
+        #err : Text;
+    }
+
+    // Used from Governance canister to change gateway canister periods for gateway and for canister registration
+    GatewayGovernanceUpdatePeriodsContract = {
+        quarantineExpiryPeriod : Nat;
+        gatewaySyncPeriod : Nat;
+        gatewaySyncAllPeriod : Nat;
+        cloneSyncPeriod : Nat;
+    }
+
+    GatewayGovernanceUpdatePeriodsResponse = {
+        #ok : { periods : GatewayGovernanceUpdatePeriodsContract }
+        #err : Text;
+    }
+
+    GatewayGovernanceUpdateLimitsContract = {
+        gatewaySyncLimit : Nat;
+        gatewaySyncAllLimit : Nat;
+        cloneSyncLimit : Nat;
+    }
+
+    GatewayGovernanceUpdateLimitsResponse = {
+        #ok : { limits : GatewayGovernanceUpdateLimitsContract }
+        #err : Text;
+    }
+
+    // Used from Governance canister to quarantine/unquarantine a gateway
+    GatewayGovernanceQuarantineContract = {
+        gateway : CanisterId;
+        quarantineUntil : Timestamp;
+        reason : Text;
+    }
+
+    GatewayGovernanceQuarantineResponse = {
+        #ok : { gateway : CanisterId }
+        #err : Text;
+    }
 }
 ```
 
@@ -316,7 +388,7 @@ gatewaySyncAll(GatewaySyncContract) -> GatewaySyncResponse
 
   Validators:
     1. msg.caller is a registered Gateway.
-    2. Calling Gateway has not exceeded 2 calls in the last 7 days (enforced via per-caller counter; reset by worker.mo).
+    2. Calling Gateway has not exceeded 2 calls in the last 168 hours (enforced via per-caller counter; reset by worker.mo).
 
   Logic:
     - Always return full gateways[] and clones[] arrays without cursor check.
@@ -384,6 +456,42 @@ Returns a snapshot of all call counters. Counters are reset every 24H by `worker
 
 ---
 
+### 5.7 Governance
+// Called from Governance canister to change gateway canister fees
+// msg.caller must match governance canister principal
+governanceUpdateFee(GatewayGovernanceUpdateFeeContract) -> GatewayGovernanceUpdateFeeResponse
+
+  Validators:
+  1. msg.caller must match governance canister principal
+
+  Logic:
+  - Update gateway canister fees in state
+  
+
+governanceUpdatePeriods(GatewayGovernanceUpdatePeriodsContract) -> GatewayGovernanceUpdatePeriodsResponse
+
+  Validators:
+  1. msg.caller must match governance canister principal
+
+  Logic:
+  - Update gateway canister periods in state
+
+governanceQuarantine(GatewayGovernanceQuarantineContract) -> GatewayGovernanceQuarantineResponse
+
+  Validators:
+  1. msg.caller must match governance canister principal
+
+  Logic:
+  - Update gateway canister quarantine status in state
+
+governanceUpdateLimits(GatewayGovernanceUpdateLimitsContract) -> GatewayGovernanceUpdateLimitsResponse
+
+  Validators:
+  1. msg.caller must match governance canister principal
+
+  Logic:
+  - Update gateway canister limits in state
+
 ## 6. Business Rules & Invariants
 
 ### 6.1 Quarantine Rules
@@ -396,13 +504,15 @@ Returns a snapshot of all call counters. Counters are reset every 24H by `worker
 | Quarantined Gateway: can **initiate** `gatewayRegisterInternal` | ❌ No — rejected by peers |
 | Gateways sync **to** quarantined Gateways | ❌ No — quarantined Gateways are excluded from outgoing sync targets |
 | Clones: quarantine applies | ❌ No — Clones are never quarantined |
+| Gateways calls quarantined gateways getStatus() | ✅ Yes — used for liveness validation |
+
 
 ### 6.2 Rate Limits
 
 | Endpoint | Limit | Window | Reset |
 |----------|-------|--------|-------|
 | `gatewaySync` | 4 calls | 24 hours | `worker.mo` heartbeat |
-| `gatewaySyncAll` | 2 calls | 7 days | `worker.mo` heartbeat |
+| `gatewaySyncAll` | 2 calls | 168 hours | `worker.mo` heartbeat |
 | `cloneSync` | 1 call | 24 hours | `worker.mo` heartbeat |
 
 Rate limits are enforced per `msg.caller`. Counters are stored in state and reset by `worker.mo`.
@@ -501,7 +611,7 @@ canister_gateway/
                          · Increment counterNotSynced for stale Gateways/Clones
                          · Mark inactive (counterNotSynced > 14)
                          · Delete from state (inactive > 30 days)
-                         · Reset call-rate counters every 24H / 7 days
+                         · Reset call-rate counters every 24H / 168 hours
                          · Transfer unclaimed deposits to canister owner after 30 days
 
 tests/
@@ -510,7 +620,7 @@ tests/
 ```
 
 **Key technology choices:**
-- `Tier.Map` — for ordered, stable `TrieMap`-compatible state storage.
+- `Tier.Map` — for ordered, stable `TrieMap`-compatible state storage in state.mo
 - `--enhanced-orthogonal-persistence` — enables automatic stable memory management across upgrades without manual `preupgrade`/`postupgrade` serialisation of simple types.
 
 ---
@@ -539,7 +649,6 @@ system func postupgrade() {
 | Item | Priority | Notes |
 |------|----------|-------|
 | Finalise `RegistrationInstructions` type fields | High | Author to review and approve field set |
-| Define exact constants in `constants.mo` | High | Deposit amounts, quarantine duration in nanoseconds, rate-limit windows |
 | Extended quarantine rules | Medium | Conditions under which quarantine can be extended beyond 6 months |
 | Monitoring dashboard integration | Low | `supportCounters()` endpoint is ready; consumer to be defined |
 | Refund / unclaimed deposit UI | Low | worker.mo handles transfer; operator notification mechanism TBD |
