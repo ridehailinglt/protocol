@@ -43,13 +43,16 @@ module Constants {
    public let REPUTATION_CANISTER_ID : Principal = Principal.fromText("...");
    public let AI_CANISTER_ID : Principal = Principal.fromText("...");
 
+   public let VOTING_PERIOD_FAST : Nat64 = 3 * 24 * 60 * 60;  // 3 days in seconds
+   public let VOTING_PERIOD_SLOW : Nat64 = 5 * 24 * 60 * 60;  // 5 days in seconds
    public let PROPOSAL_DEPOSIT : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
-   public let INFLATION_RATE : Nat = 10;  // 10% monthly inflation
+   public let INFLATION_RATE_WEEKLY : Float = 0.1/30 * 7;  // 10% monthly inflation distributed weekly 2.333%
 
    public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
    public let TOKENS_DISTRIBUTION_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
 
    // Not allowed to change via governance. Fixed buy design for security reasons.
+   public let FOUNDER_SECURITY_BASE_PERCENT : Float = 50.0;  // 50% of total distributed tokens
    public let FOUNDER_SECURITY_PERIOD : Nat64 = 5 * 365 * 24 * 60 * 60;  // 5 years in seconds
 }
 ```
@@ -116,6 +119,7 @@ module Types {
     public type UserTokensDao = {
         owner      : AccountId;
         balance    : Nat;
+        tripCount  : Nat;
         lastActive : Timestamp;
     };
 
@@ -268,6 +272,8 @@ module Types {
 ```motoko
 //state.mo
 // Voting point ledger — maps driver principals to their earned DRV balance.
+governanceBasePoint : Float64 = 1.0;
+founderBasePercent : Float64 = 50.0;
 userTokens : TrieMap<AccountId, UserTokensDao>
 
 // Proposal store — all historical and active proposals.
@@ -417,7 +423,7 @@ governanceGovernanceUpdateFee(args : GovernanceGovernanceUpdateFeeContract) -> R
 
 | Rule | Detail |
 |------|--------|
-| Initial allocation | Set at canister deployment |
+| Initial allocation | Zero intial allocation. Founder gets voting points from `founderBasePercent` of total distributed tokens every week |
 | Decay period | Linear decay to 0 over 5 years |
 | Purpose | Prevents bad actors from hijacking the protocol before the community grows |
 | Profit | Zero — founders extract no financial value from this balance |
@@ -449,6 +455,26 @@ The `ProposalTarget` type is the **single source of truth** for which canister t
 
 ---
 
+### 6.5 Governance points/token distribution
+
+//distributeInflation() is called every Monday at about 00:00 UTC
+Every Monday at about 00:00 UTC worker.mo will inflate governanceBasePoint by `(10%/30) * 7`. All active drivers will recieve `governanceBasePoint * tripCount` DRV points.
+Founder faucet recieves voting tokens from total amount of distributed this week tokens. This amount decades every week untill reaches 0 in 5 years.
+
+### 6.6 Voting timeline
+
+Voting can only start after voting tokens distribution and must finish before next voting tokens distribution. So voting period is a bit less than 7 days.
+This greatly simplifies and removes need for complex time based logic. We check balances at the moment of voting and it will not change untill vote finishes. This approach saves cycles. In case we have active vote and new token distribution should start, we will distribute them next Monday.
+
+### 6.7 Founder faucet decay
+founderBasePercent = 50.0% first week and decades linearly to 0 over 5 years. Decay is calculated every year.
+1 year - 50%
+2 year - 40%
+3 year - 30%
+4 year - 20%
+5 year - 10%
+6 year - 0%
+
 ## 7. Architecture
 
 ```
@@ -459,11 +485,11 @@ canister_governance/
 ├── types.governance.mo   — Governance contract types (Section 3.2) and inter-canister call logic.
 ├── logic.mo        — All business logic (inflation, proposal lifecycle, vote tallying).
 ├── validators.mo   — Pure validation functions called from main.mo before endpoint logic.
-├── math.mo         — Pure helper functions (timestamp arithmetic, inflation calculations, etc.)
+├── math.mo         — Pure helper functions (rounding, timestamp arithmetic, inflation calculations, etc.)
 └── worker.mo       — Heartbeat-driven background tasks:
-                    · distributeInflation() monthly
-                    · Decay _founderFaucetBalance over time
+                    · distributeInflation() weekly 
                     · Trigger executeProposal() for expired proposals
+                    · Performs cleaning tasks to keep canister state small not to bloat
 
 tests/
 ├── tests.[module_name].mops  — Unit tests (per module)
@@ -499,9 +525,5 @@ system func postupgrade() {
 
 | Item | Priority | Notes |
 |------|----------|-------|
-| Define `MatchingMethod` variants fully | High | Requires Matching canister spec to be finalised |
 | Voting period duration constant | High | Define in `constants.mo`; currently unspecified |
-| `distributeInflation()` implementation | High | Algorithm and rounding rules to be defined |
-| Founder decay schedule | Medium | Linear vs. curved decay to be decided |
-| Proposal retry logic on inter-canister failure | Medium | Max retries, backoff strategy TBD |
 | Monitoring / proposal dashboard | Low | `supportCounters()`-style endpoint to be added |

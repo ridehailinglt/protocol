@@ -2,16 +2,27 @@
 
 A fully decentralized ride-hailing protocol built on the Internet Computer (ICP) that replaces centralized intermediaries with a driver-owned governance and execution model. This protocol aims to eliminate the 10-30% commission rates seen in centralized platforms, opting instead for a near-zero sustainability fee to cover network cycles and development.
 
-Group on FB: www.facebook.com/groups/ridehailing/
+**Long term development vision:** only most efective forks/clones will survive and will be used. Put at priority cycles savings and performance. Simplicity and easy support is key. Don't bloat the code with unneeded features. Keep in mind - reporting increases cycle burn rate. Focus on now.
 
-Page on ICP: https://4nbfz-saaaa-aaaas-qfbea-cai.icp0.io/
+ON FACEBOOK 
+www.facebook.com/groups/ridehailing/
+
+On NUANCE.XYZ
+XXL Size cycles demand coming from Ride Hailing-Protocol
+https://nuance.xyz/icpbloger/16911-434go-diaaa-aaaaf-qakwq-cai/xxl-size-cycles-demand-coming-from-ride-hailing-protocol
+
+Real World ICP adoption from mobility infrastructure
+https://nuance.xyz/icpbloger/16964-434go-diaaa-aaaaf-qakwq-cai/real-world-icp-adoption-from-mobility-infrastructure
+
+ON ICP
+https://4nbfz-saaaa-aaaas-qfbea-cai.icp0.io/
 
 ## Current progress
 
 Markup documentation for AI generated code progress:
 > 1. Gateway canister - done `canister_gateway_v1.md`
-2. Governance canister - in progress
-3. Registry canister - not started
+> 2. Governance canister - done `canister_governance_v1.md` and continues appending improvements. 
+3. Registry canister - in progress
 4. Matching canister - not started
 5. Treasury & Escrow canister - not started
 6. Reputation & Arbitration canister - not started
@@ -50,7 +61,7 @@ The backend runs entirely on ICP smart contracts (canisters) to maintain a decen
 
 Because ICP operates on a "reverse-gas" model, the application pays for its own computation; end users and drivers do not need to hold cryptocurrency. The protocol is economically highly viable:
 
-*   **Cost Estimate**: The sharded architecture (assuming 1000 drivers) will burn roughly $10k–$30k worth of compute cycles annually.
+*   **Cost Estimate**: The sharded architecture (assuming 1000 drivers) will burn roughly $10k–$30k worth of compute cycles annually optimistically. Max estimate is $150k with state updates and other operations. 
 *   **Treasury Revenue**: Even if drivers contribute a low flat fee (e.g., €20/month) rather than a 20% commission, the treasury over-collateralizes network compute costs by over 10x, with remaining funds allocated via DAO governance to development grants or system marketing.
 
 ## Security & Anti-Fraud Architecture
