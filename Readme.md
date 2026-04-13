@@ -4,17 +4,17 @@ A fully decentralized ride-hailing protocol built on the Internet Computer (ICP)
 
 **Long term development vision:** only most efective forks/clones will survive and will be used. Put at priority cycles savings and performance. Simplicity and easy support is key. Don't bloat the code with unneeded features. Keep in mind - reporting increases cycle burn rate. Focus on now.
 
-ON FACEBOOK 
+Facebook group
 www.facebook.com/groups/ridehailing/
 
-On NUANCE.XYZ
-XXL Size cycles demand coming from Ride Hailing-Protocol
+Articles on nuance.xyz
+`XXL Size cycles demand coming from Ride Hailing-Protocol`
 https://nuance.xyz/icpbloger/16911-434go-diaaa-aaaaf-qakwq-cai/xxl-size-cycles-demand-coming-from-ride-hailing-protocol
 
-Real World ICP adoption from mobility infrastructure
+`Real World ICP adoption from mobility infrastructure`
 https://nuance.xyz/icpbloger/16964-434go-diaaa-aaaaf-qakwq-cai/real-world-icp-adoption-from-mobility-infrastructure
 
-ON ICP
+on icp
 https://4nbfz-saaaa-aaaas-qfbea-cai.icp0.io/
 
 ## Current progress
