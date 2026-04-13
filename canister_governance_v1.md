@@ -88,8 +88,9 @@ module Types {
     ///   - It is impossible to construct an invalid Canister → Method combination.
     public type ProposalTarget = {
         #Governance : GovernanceMethod;
-        #Gateway  : GatewayMethod;
-        #Matching : MatchingMethod;
+        #Gateway    : GatewayMethod;
+        #Matching   : MatchingMethod;
+        #Registry   : RegistryMethod;
     };
 
     /// All governance-callable methods on the Governance canister.
@@ -109,6 +110,15 @@ module Types {
     /// Extend as Matching governance endpoints are defined.
     public type MatchingMethod = {
         #UpdateRadius : { meters : Nat32 };
+    };
+
+    /// All governance-callable methods on the Registry canister.
+    public type RegistryMethod = {
+        #UpdateFees           : RegistryGovernanceUpdateFeesContract;
+        #SuspendDriver        : RegistryGovernanceSuspendDriverContract;
+        #BanDriver            : RegistryGovernanceBanDriverContract;
+        #UpdateInspectorCount : RegistryGovernanceUpdateInspectorCountContract;
+        #UpdateInspectionFee  : RegistryGovernanceUpdateInspectionFeeContract;
     };
 
 
@@ -211,7 +221,66 @@ module Types {
     };
 
     // ==========================================
-    // --- 2. GATEWAY GOVERNANCE TYPES        ---
+    // --- 2. REGISTRY GOVERNANCE TYPES       ---
+    // ==========================================
+
+    /// Payload for registryGovernanceUpdateFees — adjusts driver/rider registration fees.
+    public type RegistryGovernanceUpdateFeesContract = {
+        driverRegistrationFee : Nat;
+        riderRegistrationFee  : Nat;
+    };
+
+    public type RegistryGovernanceUpdateFeesResponse = {
+        #ok  : { fees : RegistryGovernanceUpdateFeesContract };
+        #err : Text;
+    };
+
+    /// Payload for registryGovernanceSuspendDriver — temporarily restricts a driver.
+    public type RegistryGovernanceSuspendDriverContract = {
+        driver         : AccountId;
+        suspendedUntil : Timestamp;
+        reason         : Text;
+    };
+
+    public type RegistryGovernanceSuspendDriverResponse = {
+        #ok  : { driver : AccountId };
+        #err : Text;
+    };
+
+    /// Payload for registryGovernanceBanDriver — permanently removes a driver.
+    public type RegistryGovernanceBanDriverContract = {
+        driver : AccountId;
+        reason : Text;
+    };
+
+    public type RegistryGovernanceBanDriverResponse = {
+        #ok  : { driver : AccountId };
+        #err : Text;
+    };
+
+    /// Payload for registryGovernanceUpdateInspectorCount — adjusts peer inspection parameters.
+    public type RegistryGovernanceUpdateInspectorCountContract = {
+        minConfirmations : Nat;  // Min inspectors that must confirm (1–3)
+        maxInspectors    : Nat;  // Max inspectors assigned per candidate (1–3)
+    };
+
+    public type RegistryGovernanceUpdateInspectorCountResponse = {
+        #ok  : { minConfirmations : Nat; maxInspectors : Nat };
+        #err : Text;
+    };
+
+    /// Payload for registryGovernanceUpdateInspectionFee — adjusts fee paid to each confirming inspector.
+    public type RegistryGovernanceUpdateInspectionFeeContract = {
+        inspectionFeePerInspector : Nat;  // ICP e8s paid to each confirming inspector
+    };
+
+    public type RegistryGovernanceUpdateInspectionFeeResponse = {
+        #ok  : { inspectionFeePerInspector : Nat };
+        #err : Text;
+    };
+
+    // ==========================================
+    // --- 3. GATEWAY GOVERNANCE TYPES        ---
     // ==========================================
 
     /// Payload for governanceUpdateFee — adjusts Gateway and Clone registration fees.
@@ -372,12 +441,17 @@ executeProposal(proposalId) -> Result<(), Error>
     - Switch on payload.target to resolve the correct endpoint:
 
         switch (payload.target) {
-            case (#Governance(#UpdateFee(args)))   { /* call governanceGovernanceUpdateFee(args) */ };
-            case (#Gateway(#UpdateFee(args)))     { /* call governanceUpdateFee(args) */ };
-            case (#Gateway(#UpdatePeriods(args))) { /* call governanceUpdatePeriods(args) */ };
-            case (#Gateway(#UpdateLimits(args)))  { /* call governanceUpdateLimits(args) */ };
-            case (#Gateway(#Quarantine(args)))    { /* call governanceQuarantine(args) */ };
-            case (#Matching(#UpdateRadius(args))) { /* call matchingUpdateRadius(args) */ };
+            case (#Governance(#UpdateFee(args)))                    { /* call governanceGovernanceUpdateFee(args) */ };
+            case (#Gateway(#UpdateFee(args)))                       { /* call governanceUpdateFee(args) */ };
+            case (#Gateway(#UpdatePeriods(args)))                   { /* call governanceUpdatePeriods(args) */ };
+            case (#Gateway(#UpdateLimits(args)))                    { /* call governanceUpdateLimits(args) */ };
+            case (#Gateway(#Quarantine(args)))                      { /* call governanceQuarantine(args) */ };
+            case (#Matching(#UpdateRadius(args)))                   { /* call matchingUpdateRadius(args) */ };
+            case (#Registry(#UpdateFees(args)))                     { /* call registryGovernanceUpdateFees(args) */ };
+            case (#Registry(#SuspendDriver(args)))                  { /* call registryGovernanceSuspendDriver(args) */ };
+            case (#Registry(#BanDriver(args)))                      { /* call registryGovernanceBanDriver(args) */ };
+            case (#Registry(#UpdateInspectorCount(args)))           { /* call registryGovernanceUpdateInspectorCount(args) */ };
+            case (#Registry(#UpdateInspectionFee(args)))            { /* call registryGovernanceUpdateInspectionFee(args) */ };
         };
 
     - On success: mark proposal as #Executed. Return 10 ICP deposit to proposer.
