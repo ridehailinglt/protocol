@@ -32,7 +32,29 @@ Key design properties:
 
 ## 3. Definitions
 
-### 3.1 Types
+## 3.1 Constants
+```motoko
+// constants.mo
+module Constants {
+   public let GATEWAY_CANISTER_ID : Principal = Principal.fromText("...");
+   public let REGISTRY_CANISTER_ID : Principal = Principal.fromText("...");
+   public let MATCHING_CANISTER_ID : Principal = Principal.fromText("...");
+   public let PAYMENT_CANISTER_ID : Principal = Principal.fromText("...");
+   public let REPUTATION_CANISTER_ID : Principal = Principal.fromText("...");
+   public let AI_CANISTER_ID : Principal = Principal.fromText("...");
+
+   public let PROPOSAL_DEPOSIT : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
+   public let INFLATION_RATE : Nat = 10;  // 10% monthly inflation
+
+   public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+   public let TOKENS_DISTRIBUTION_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+
+   // Not allowed to change via governance. Fixed buy design for security reasons.
+   public let FOUNDER_SECURITY_PERIOD : Nat64 = 5 * 365 * 24 * 60 * 60;  // 5 years in seconds
+}
+```
+
+### 3.2 Types
 
 ```motoko
 // types.mo
@@ -49,6 +71,7 @@ module Types {
     public type Subaccount  = Blob;    // 32-byte unique subaccount identifier
 
 
+
     // ==========================================
     // --- 2. PROPOSAL TARGET TYPES           ---
     // ==========================================
@@ -61,8 +84,14 @@ module Types {
     ///   - Adding a new governable canister requires adding a new variant branch here.
     ///   - It is impossible to construct an invalid Canister → Method combination.
     public type ProposalTarget = {
+        #Governance : GovernanceMethod;
         #Gateway  : GatewayMethod;
         #Matching : MatchingMethod;
+    };
+
+    /// All governance-callable methods on the Governance canister.
+    public type GovernanceMethod = {
+        #UpdateFee     : GovernanceGovernanceUpdateFeeContract;
     };
 
     /// All governance-callable methods on the Gateway canister.
@@ -96,6 +125,7 @@ module Types {
     // ==========================================
 
     public type ProposalStatus = {
+        #Pending;
         #Active;
         #Accepted;
         #Rejected;
@@ -112,20 +142,33 @@ module Types {
         encodedArguments : Blob;            // Candid-encoded arguments for the actual IC call
     };
 
+    public type DepositStatus = {
+        #pending;
+        #paid;
+    };
+
+    public type DepositDao = {
+        id         : ProposalId;    // ID of the proposal this deposit is for
+        proposer   : AccountId;     // The account that made the deposit
+        subaccount : Subaccount;    // Unique subaccount for this deposit
+        amount     : Nat64;         // Deposit amount in e8s (ICP smallest unit)
+        status     : DepositStatus; // Default: #pending
+        consumed   : Bool;          // Set to true when deposit is used for registration. Default: false
+        createdAt  : Timestamp;     // When the deposit record was created
+    };
+
     public type ProposalDao = {
         id                : ProposalId;
         proposer          : AccountId;
         title             : Text;
         description       : Text;
         payload           : ProposalPayloadDao;
-        depositSubaccount : Subaccount;     // For the 10 ICP deposit verification
         status            : ProposalStatus;
         votesFor          : Nat;
         votesAgainst      : Nat;
         createdAt         : Timestamp;
         votingEndsAt      : Timestamp;
     };
-
 
     // ==========================================
     // --- 5. VOTE TYPES                      ---
@@ -149,9 +192,22 @@ These types are used in `ProposalTarget.#Gateway` method payloads and are also c
 ```motoko
 // types.governance.mo
 module Types {
+    // ==========================================
+    // --- 1. GOVERNANCE GOVERNANCE TYPES     ---
+    // ==========================================
+
+    /// Payload for governanceUpdateFee — adjusts Gateway and Clone registration fees.
+    public type GovernanceGovernanceUpdateFeeContract = {
+        proposalDeposit : Nat;
+    };
+
+    public type GovernanceGovernanceUpdateFeeResponse = {
+        #ok  : { fees : GovernanceGovernanceUpdateFeeContract };
+        #err : Text;
+    };
 
     // ==========================================
-    // --- 6. GATEWAY GOVERNANCE TYPES        ---
+    // --- 2. GATEWAY GOVERNANCE TYPES        ---
     // ==========================================
 
     /// Payload for governanceUpdateFee — adjusts Gateway and Clone registration fees.
@@ -223,6 +279,7 @@ proposals  : TrieMap<ProposalId, ProposalDao>
 ```
 //main.mo
 // --- Aggregate counters ---
+var _governanceSubaccount : Subaccount;
 var _totalUserTokensSupply : Nat = 0;  // Global DRV supply; used to calculate 10% monthly inflation
 var _founderFaucetBalance  : Nat = 0;  // Remaining founder security balance; decays to 0 over 5 years
 
@@ -309,6 +366,7 @@ executeProposal(proposalId) -> Result<(), Error>
     - Switch on payload.target to resolve the correct endpoint:
 
         switch (payload.target) {
+            case (#Governance(#UpdateFee(args)))   { /* call governanceGovernanceUpdateFee(args) */ };
             case (#Gateway(#UpdateFee(args)))     { /* call governanceUpdateFee(args) */ };
             case (#Gateway(#UpdatePeriods(args))) { /* call governanceUpdatePeriods(args) */ };
             case (#Gateway(#UpdateLimits(args)))  { /* call governanceUpdateLimits(args) */ };
@@ -323,8 +381,22 @@ executeProposal(proposalId) -> Result<(), Error>
     - Sweep 10 ICP deposit into the protocol treasury.
     - Mark proposal as #Executed.
 ```
-
 ---
+
+### 5.5 Governance Governance Update Fee
+
+```
+// Public. Can be triggered by a worker or any user once voting ends.
+governanceGovernanceUpdateFee(args : GovernanceGovernanceUpdateFeeContract) -> Result<(), Error>
+
+  Validators (in order):
+    1. Proposal with proposalId exists.
+    2. Proposal status is #Accepted or #Rejected (voting period has ended).
+
+  On success:
+    - Update the fee in the Governance canister.
+    - Mark proposal as #Executed.
+```
 
 ## 6. Business Rules & Invariants
 

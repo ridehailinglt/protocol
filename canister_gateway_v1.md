@@ -36,6 +36,8 @@ Key design properties:
 ```motoko
 // constants.mo
 module Constants {
+    public let GOVERNANCE_CANISTER_ID : Principal = Principal.fromText("...");
+
     public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
     public let GATEWAY_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
     public let CANISTER_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
@@ -238,7 +240,7 @@ module Types {
 
 module Types {
   // ==========================================
-  // --- 7. GOVERNANCE TYPES  ---
+  // --- 1. GATEWAY GOVERNANCE TYPES  ---
   // ==========================================
 
   // Used from Governance canister to change gateway canister fees for gateway and for canister registration
