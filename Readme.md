@@ -40,11 +40,11 @@ The backend runs entirely on ICP smart contracts (canisters) to maintain a decen
 
 1.  **Gateway Canister** is the directory and routing backbone of the decentralised Hydra Mobility Mesh. 
 2.  **Governance Canister**: The central authority managing the Voting Point ledger. There is no tradable governance token. Active drivers earn "Voting Points" (1 trip = 1 point), with a 10% monthly inflation mechanism to prioritize recent activity.
-3.  **Registry Canister**: Manages driver registration, hashes KYC data to the chain, and handles deterministic regional mapping.
-4.  **Matching Canister (City-Sharded)**: Dedicated canisters for specific geographic areas (e.g., Vilnius) to prevent state bloat. Manages the ride lifecycle (`RIDE_REQUESTED` to `SETTLED`) via update calls and incorporates lightweight proximity filtering algorithms.
-5.  **Treasury & Escrow Canister**: Holds rider payments in escrow during transit and automates the deduction of the driver-governed Sustainability Fee (0.1%-1%) before settling funds.
-6.  **Reputation & Arbitration Canister**: An immutable ledger of rating events. Employs a peer-jury model for decentralized dispute resolution with slashing mechanisms to penalize malicious behavior.
-7.  *(Optional)* **AI Inference Canister**: Uses ICP’s on-chain AI to detect fraudulent ride patterns through geolocation hash deviations and compute dynamic surge pricing proposals.
+3.  **Registry Canister**: Manages driver/rider registration, hashes KYC data to the chain (for liveness checks, is used: https://id.decideai.xyz/), and handles deterministic regional mapping.
+4.  **Payment Canister**: Holds rider payments in escrow during transit and automates the deduction of the driver-governed Sustainability Fee (0.1%-1%) before settling funds.
+5.  **Reputation Canister**: An immutable ledger of rating events. Employs a peer-jury model for decentralized dispute resolution with slashing mechanisms to penalize malicious behavior.
+6.  **Matching Canister (City-Sharded)**: Dedicated canisters for specific geographic areas (e.g., Vilnius) to prevent state bloat. Manages the ride lifecycle (`RIDE_REQUESTED` to `SETTLED`) via update calls and incorporates lightweight proximity filtering algorithms.
+7.  *(Optional)* **AI Canister**: Uses ICP’s on-chain AI to detect fraudulent ride patterns through geolocation hash deviations and compute dynamic surge pricing proposals.
 
 ## Technical Economics (The "Reverse Gas" Model)
 

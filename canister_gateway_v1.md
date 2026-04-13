@@ -34,6 +34,7 @@ Key design properties:
 
 ## 3.1 Constants
 ```motoko
+// constants.mo
 module Constants {
     public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
     public let GATEWAY_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
@@ -53,6 +54,7 @@ module Constants {
 
 ## 3.2 Types
 ```motoko
+// types.mo
 module Types {
 
     // ==========================================
@@ -228,61 +230,66 @@ module Types {
         cloneRegister           : Nat;
         cloneSync               : Nat;
     };
-
-    // ==========================================
-    // --- 7. GOVERNANCE TYPES  ---
-    // ==========================================
-
-    // Used from Governance canister to change gateway canister fees for gateway and for canister registration
-    GatewayGovernanceUpdateFeeContract = {
-        gatewayRegistrationFee : Nat;
-        canisterRegistrationFee : Nat;
-        depositExpiryPeriod : Nat;
-    }
-
-    GatewayGovernanceUpdateFeeResponse = {
-        #ok : { fees : GatewayGovernanceUpdateFeeContract }
-        #err : Text;
-    }
-
-    // Used from Governance canister to change gateway canister periods for gateway and for canister registration
-    GatewayGovernanceUpdatePeriodsContract = {
-        quarantineExpiryPeriod : Nat;
-        gatewaySyncPeriod : Nat;
-        gatewaySyncAllPeriod : Nat;
-        cloneSyncPeriod : Nat;
-    }
-
-    GatewayGovernanceUpdatePeriodsResponse = {
-        #ok : { periods : GatewayGovernanceUpdatePeriodsContract }
-        #err : Text;
-    }
-
-    GatewayGovernanceUpdateLimitsContract = {
-        gatewaySyncLimit : Nat;
-        gatewaySyncAllLimit : Nat;
-        cloneSyncLimit : Nat;
-    }
-
-    GatewayGovernanceUpdateLimitsResponse = {
-        #ok : { limits : GatewayGovernanceUpdateLimitsContract }
-        #err : Text;
-    }
-
-    // Used from Governance canister to quarantine/unquarantine a gateway
-    GatewayGovernanceQuarantineContract = {
-        gateway : CanisterId;
-        quarantineUntil : Timestamp;
-        reason : Text;
-    }
-
-    GatewayGovernanceQuarantineResponse = {
-        #ok : { gateway : CanisterId }
-        #err : Text;
-    }
 }
 ```
 
+```motoko
+// governance.mo
+
+module Types {
+  // ==========================================
+  // --- 7. GOVERNANCE TYPES  ---
+  // ==========================================
+
+  // Used from Governance canister to change gateway canister fees for gateway and for canister registration
+  GatewayGovernanceUpdateFeeContract = {
+      gatewayRegistrationFee : Nat;
+      canisterRegistrationFee : Nat;
+      depositExpiryPeriod : Nat;
+  }
+
+  GatewayGovernanceUpdateFeeResponse = {
+      #ok : { fees : GatewayGovernanceUpdateFeeContract }
+      #err : Text;
+  }
+
+  // Used from Governance canister to change gateway canister periods for gateway and for canister registration
+  GatewayGovernanceUpdatePeriodsContract = {
+      quarantineExpiryPeriod : Nat;
+      gatewaySyncPeriod : Nat;
+      gatewaySyncAllPeriod : Nat;
+      cloneSyncPeriod : Nat;
+  }
+
+  GatewayGovernanceUpdatePeriodsResponse = {
+      #ok : { periods : GatewayGovernanceUpdatePeriodsContract }
+      #err : Text;
+  }
+
+  GatewayGovernanceUpdateLimitsContract = {
+      gatewaySyncLimit : Nat;
+      gatewaySyncAllLimit : Nat;
+      cloneSyncLimit : Nat;
+  }
+
+  GatewayGovernanceUpdateLimitsResponse = {
+      #ok : { limits : GatewayGovernanceUpdateLimitsContract }
+      #err : Text;
+  }
+
+  // Used from Governance canister to quarantine/unquarantine a gateway
+  GatewayGovernanceQuarantineContract = {
+      gateway : CanisterId;
+      quarantineUntil : Timestamp;
+      reason : Text;
+  }
+
+  GatewayGovernanceQuarantineResponse = {
+      #ok : { gateway : CanisterId }
+      #err : Text;
+  }
+}
+```
 ---
 
 ## 4. Internal State Variables
@@ -457,6 +464,8 @@ Returns a snapshot of all call counters. Counters are reset every 24H by `worker
 ---
 
 ### 5.7 Governance
+
+```
 // Called from Governance canister to change gateway canister fees
 // msg.caller must match governance canister principal
 governanceUpdateFee(GatewayGovernanceUpdateFeeContract) -> GatewayGovernanceUpdateFeeResponse
@@ -492,6 +501,7 @@ governanceUpdateLimits(GatewayGovernanceUpdateLimitsContract) -> GatewayGovernan
   Logic:
   - Update gateway canister limits in state
 
+```
 ## 6. Business Rules & Invariants
 
 ### 6.1 Quarantine Rules
@@ -601,22 +611,25 @@ The owner of each Gateway canister is responsible for maintaining its cycle bala
 
 ```
 canister_gateway/
-├── main.mo          — Actor entry point. Exposes all public endpoints. Holds _version.
-├── state.mo         — Stable state definitions. All maps and counters. Upgraded via postupgrade.
-├── types.mo         — All shared type definitions (module Types from Section 3).
-├── constants.mo     — Protocol-wide constants (deposit amounts, quarantine duration, rate limits, etc.)
-├── validators.mo    — Pure validation functions called from main.mo before endpoint logic.
-├── math.mo          — Pure helper functions (timestamp arithmetic, duration checks, etc.)
-└── worker.mo        — Heartbeat-driven background tasks:
-                         · Increment counterNotSynced for stale Gateways/Clones
-                         · Mark inactive (counterNotSynced > 14)
-                         · Delete from state (inactive > 30 days)
-                         · Reset call-rate counters every 24H / 168 hours
-                         · Transfer unclaimed deposits to canister owner after 30 days
+├── main.mo               — Actor entry point. Exposes all public endpoints. Holds _version.
+├── state.mo              — Stable state definitions. All maps and counters. Upgraded via postupgrade.
+├── constants.mo          — Protocol-wide constants (deposit amounts, quarantine duration, rate limits, etc.)
+├── types.mo              — All shared type definitions (module Types from Section 3).
+├── types.governance.mo   — Governance canister type definitions.
+├── logic.mo              — All business logic.
+├── governance.mo         — Governance canister interface and logic.
+├── validators.mo         — Pure validation functions called from main.mo before endpoint logic.
+├── math.mo               — Pure helper functions (timestamp arithmetic, duration checks, etc.)
+└── worker.mo             — Heartbeat-driven background tasks:
+                          · Increment counterNotSynced for stale Gateways/Clones
+                          · Mark inactive (counterNotSynced > 14)
+                          · Delete from state (inactive > 30 days)
+                          · Reset call-rate counters every 24H / 168 hours
+                          · Transfer unclaimed deposits to canister owner after 30 days
 
 tests/
-├── tests.mops       — Unit tests (per module)
-└── tests.integration — End-to-end integration tests simulating Gateway and Clone bootstrap flows
+├── tests.[module_name].mops       — Unit tests (per module)
+└── tests.[module_name].mops — End-to-end integration tests simulating Gateway and Clone bootstrap flows
 ```
 
 **Key technology choices:**
