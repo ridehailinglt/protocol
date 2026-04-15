@@ -163,19 +163,29 @@ module Types {
         encodedArguments : Blob;            // Candid-encoded arguments for the actual IC call
     };
 
+    /// Discriminates the purpose of a deposit. Governance manages deposits for multiple canister flows.
+    public type DepositType = {
+        #ProposalDeposit;        // 10 ICP required to submit a governance proposal
+        #DriverRegistration;     // Driver registration fee. Amount read from Registry.governanceGetConfig()
+        #ReputationInspection;   // Inspector fee escrow. Amount read from Reputation.governanceGetConfig()
+        // Extend here as new payment flows are introduced.
+    };
+
     public type DepositStatus = {
-        #pending;
-        #paid;
+        #Pending;   // Subaccount created; payment not yet confirmed
+        #Paid;      // Payment confirmed on ICP Ledger
+        #Consumed;  // Deposit used for its intended purpose
+        #Expired;   // 30-day window elapsed without payment; refund processed by worker.mo
     };
 
     public type DepositDao = {
-        id         : ProposalId;    // ID of the proposal this deposit is for
-        proposer   : AccountId;     // The account that made the deposit
-        subaccount : Subaccount;    // Unique subaccount for this deposit
-        amount     : Nat64;         // Deposit amount in e8s (ICP smallest unit)
-        status     : DepositStatus; // Default: #pending
-        consumed   : Bool;          // Set to true when deposit is used for registration. Default: false
-        createdAt  : Timestamp;     // When the deposit record was created
+        id          : Nat64;         // Unique deposit ID (auto-incremented)
+        depositor   : AccountId;     // The principal making the deposit
+        subaccount  : Subaccount;    // Unique subaccount generated for this deposit
+        depositType : DepositType;   // Purpose of this deposit
+        amount      : Nat64;         // Required amount in e8s (ICP smallest unit)
+        status      : DepositStatus; // Default: #Pending
+        createdAt   : Timestamp;     // When the deposit record was created
     };
 
     public type ProposalDao = {
@@ -408,6 +418,9 @@ userTokens : TrieMap<AccountId, UserTokensDao>
 // Proposal store — all historical and active proposals.
 proposals  : TrieMap<ProposalId, ProposalDao>
 
+// Multipurpose deposit store — all deposit records regardless of type.
+// Key: DepositDao.id (auto-incremented Nat64)
+deposits   : TrieMap<Nat64, DepositDao>
 ```
 ---
 
@@ -430,16 +443,17 @@ var _version : Nat = 1;
 
 ```
 // Public. Any participant may call. No rate limit.
-submitProposal(title, description, payload, paymentSubaccount) -> Result<ProposalId, Error>
+submitProposal(title, description, payload, depositId) -> Result<ProposalId, Error>
 
   Validators (in order):
     1. Caller has a DRV balance > 0.
-    2. Exactly 10 ICP has been deposited into paymentSubaccount on the ICP Ledger.
+    2. A deposit with depositId exists, depositType = #ProposalDeposit, status = #Paid, depositor = msg.caller.
     3. payload.target is a valid ProposalTarget value (enforced by type system).
 
   On success:
     - Register proposal with status = #Active.
     - Set votingEndsAt = now + voting period duration.
+    - Mark deposit status = #Consumed.
     - Return ProposalId.
 
   On any validation failure:
@@ -448,7 +462,58 @@ submitProposal(title, description, payload, paymentSubaccount) -> Result<Proposa
 
 ---
 
-### 5.2 Cast Vote
+### 5.2 Get Deposit Subaccount
+
+```
+// Public. No caller check.
+// UI calls this to get the subaccount where the driver should send payment.
+// Governance reads the required amount from the target canister's governanceGetConfig().
+depositSubaccountGet(depositType : DepositType) -> Result<{ depositId : Nat64; subaccount : Subaccount; amount : Nat64 }, Text>
+
+  Validators (in order):
+    1. depositType is a known type.
+    2. msg.caller does not already have an active #Pending or #Paid deposit of this type.
+
+  Logic:
+    - For #ProposalDeposit: amount = PROPOSAL_DEPOSIT (from constants.mo).
+    - For #DriverRegistration: call REGISTRY_CANISTER_ID.governanceGetConfig() to read driverRegistrationFee.
+    - For #ReputationInspection: call REPUTATION_CANISTER_ID.governanceGetConfig() to read inspectionFeePerInspector.
+    - Generate a unique Subaccount for this depositor + depositType.
+    - Create DepositDao with status = #Pending.
+    - Return { depositId, subaccount, amount } — UI shows this to the user.
+
+  On any validation failure:
+    - Return #err with descriptive Text.
+```
+
+---
+
+### 5.3 Confirm Driver Registration Payment
+
+```
+// Public. msg.caller must be the depositor.
+// UI calls this after the driver signals "I have paid".
+// Governance verifies on ICP Ledger and notifies Registry.
+depositConfirmDriverRegistration(depositId : Nat64) -> Result<(), Text>
+
+  Validators (in order):
+    1. Deposit with depositId exists, depositType = #DriverRegistration, status = #Pending.
+    2. msg.caller matches deposit.depositor.
+    3. ICP Ledger balance of deposit.subaccount >= deposit.amount.
+
+  On success:
+    - Set deposit.status = #Paid.
+    - Call REGISTRY_CANISTER_ID.registryDriverPaymentConfirmed(msg.caller).
+    - Set deposit.status = #Consumed.
+    - Return #ok.
+
+  On any validation failure:
+    - Return #err with descriptive Text.
+```
+
+---
+
+### 5.4 Cast Vote
 
 ```
 // Public. Caller must be a registered driver with DRV balance > 0.
@@ -583,14 +648,19 @@ governanceGetAllConfigs() -> GovernanceAllConfigsResponse
 
 ---
 
-### 6.3 Proposal Deposit Rules
+### 6.3 Deposit Rules
 
 | Rule | Detail |
 |------|--------|
-| Required amount | 10 ICP (in e8s) |
-| Verification | Canister checks ICP Ledger balance of `paymentSubaccount` before accepting |
-| On acceptance | Deposit returned to proposer after `#Executed` |
-| On rejection | Deposit swept into protocol treasury |
+| Deposit types | `#ProposalDeposit`, `#DriverRegistration`, `#ReputationInspection` (extensible) |
+| Required amount | Depends on `depositType` — read live from target canister's `governanceGetConfig()` |
+| Verification | Governance checks ICP Ledger balance of `deposit.subaccount` |
+| Expiry window | 30 days from `createdAt` (`DEPOSIT_EXPIRY_PERIOD` in `constants.mo`) |
+| On expiry | `worker.mo` marks status = `#Expired`. Any paid-but-unclaimed funds transferred to Governance treasury. |
+| `#ProposalDeposit` accepted | Deposit status = `#Consumed`. Returned to proposer after `#Executed`. |
+| `#ProposalDeposit` rejected | Swept into protocol treasury. |
+| `#DriverRegistration` confirmed | Governance calls Registry `registryDriverPaymentConfirmed()`. Deposit = `#Consumed`. |
+| One active deposit per type | A depositor may not open a second deposit of the same type while one is `#Pending` or `#Paid`. |
 
 ---
 
@@ -638,9 +708,11 @@ canister_governance/
 ├── validators.mo   — Pure validation functions called from main.mo before endpoint logic.
 ├── math.mo         — Pure helper functions (rounding, timestamp arithmetic, inflation calculations, etc.)
 └── worker.mo       — Heartbeat-driven background tasks:
-                    · distributeInflation() weekly 
-                    · Trigger executeProposal() for expired proposals
-                    · Performs cleaning tasks to keep canister state small not to bloat
+                    · distributeInflation() weekly
+                    · Trigger executeProposal() for expired #Accepted proposals
+                    · Expire deposits: mark #Pending deposits as #Expired after DEPOSIT_EXPIRY_PERIOD
+                    · Refund expired #Paid deposits to depositor (or sweep to treasury per type rules)
+                    · Performs cleaning tasks to keep canister state small
 
 tests/
 ├── tests.[module_name].mops  — Unit tests (per module)

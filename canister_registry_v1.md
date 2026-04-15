@@ -65,6 +65,10 @@ module Constants {
     //Cleanup
     public let INACTIVE_DRIVER_PRUNING_PERIOD : Nat64 = 90 * 24 * 60 * 60;   // 90 days in seconds
     public let INACTIVE_DRIVER_MINIMAL_PERCENTVOTING_POWER : Float = 0.1; // 0.1% of total voting power
+
+    // Registration expiry — drivers stuck in #Pending (fee unpaid) are deleted after this period.
+    // Allows the driver to re-register from scratch as if the first attempt never happened.
+    public let PENDING_REGISTRATION_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
 }
 ```
 
@@ -369,12 +373,12 @@ driverRegister(DriverRegisterContract) -> DriverRegisterResponse
 ### 5.3 Driver Liveness Submission
 
 ```
-// Public. msg.caller must match a driver with status = #Pending.
-// Step 2 — driver submits their DecideAI liveness hash.
+// Public. msg.caller must match a driver with status = #PendingLiveness.
+// Step 3 — driver submits their DecideAI liveness hash after registration fee has been paid.
 driverSubmitLiveness(livenessHash : LivenessHash) -> Result<(), Text>
 
   Validators (in order):
-    1. msg.caller is registered as a driver with status = #Pending.
+    1. msg.caller is registered as a driver with status = #PendingLiveness.
     2. livenessHash is not already registered by another driver (prevents duplicate proof).
     3. Calls KYC_PROVIDER_CANISTER_ID with livenessHash; must return verified = true.
 
@@ -392,7 +396,28 @@ driverSubmitLiveness(livenessHash : LivenessHash) -> Result<(), Text>
 
 ---
 
-### 5.4 Registry Activate Driver (Reputation contract call)
+### 5.4 Registry Driver Payment Confirmed (Governance contract call)
+
+```
+// Internal. msg.caller must match Governance canister principal.
+// Called by Governance after it verifies the driver registration fee payment on the ICP Ledger.
+registryDriverPaymentConfirmed(driver : AccountId) -> Result<(), Text>
+
+  Validators (in order):
+    1. msg.caller must match GOVERNANCE_CANISTER_ID.
+    2. Driver exists and status is #Pending.
+
+  On success:
+    - Set driver.status = #PendingLiveness.
+    - Return #ok.
+
+  On any validation failure:
+    - Return #err with descriptive Text.
+```
+
+---
+
+### 5.5 Registry Activate Driver (Reputation contract call)
 
 ```
 // Internal. msg.caller must match Reputation canister principal.
@@ -553,11 +578,14 @@ governanceBanDriver(RegistryGovernanceBanDriverContract) -> RegistryGovernanceBa
 |------|-----|-------------|
 | 0 | Driver | Authenticate via Internet Identity 2 |
 | 1 | Driver | Fill registration form (name, car details, region, OpenChat handle). Status → `#Pending`. Form locked. |
-| 2 | Driver | Complete liveness check on [decide.ai](https://id.decideai.xyz/). Submit `livenessHash`. Status → `#PendingInspection`. |
-| 3 | System | Randomly select 1–3 currently active drivers with highest voting power. Create `DriverInspectionDao` records. |
-| 4 | Inspectors | Each inspector contacts the candidate via OpenChat video call. Verifies: (a) speaks required language, (b) car matches form. No documents checked. |
-| 5 | Inspectors | Call `driverInspectionConfirm()` with outcome. |
-| 6 | System | If `confirmedCount >= _minConfirmations`: status → `#Active`. Inspector fee distributed. |
+| 2 | Driver | UI calls `Governance.depositSubaccountGet(#DriverRegistration)`. Governance reads fee from `registryGovernanceGetConfig()`. UI shows subaccount + amount. |
+| 3 | Driver | Send registration fee to displayed subaccount. Press "I have paid". UI calls `Governance.depositConfirmDriverRegistration(depositId)`. |
+| 4 | Governance | Verifies payment on ICP Ledger. Calls `Registry.registryDriverPaymentConfirmed(driver)`. Status → `#PendingLiveness`. |
+| 5 | Driver | Complete liveness check on [decide.ai](https://id.decideai.xyz/). Submit `livenessHash`. Status → `#PendingInspection`. |
+| 6 | System | Randomly select 1–3 active drivers with highest voting power. Call `Reputation.inspectionAssign()`. |
+| 7 | Inspectors | Each inspector contacts the candidate via OpenChat video call. Verifies language and car. No documents checked. |
+| 8 | Inspectors | Call `driverInspectionConfirm()` with outcome. |
+| 9 | System | If `confirmedCount >= _minConfirmations`: status → `#Active`. Inspector fee distributed. |
 
 > **Privacy guarantee:** Inspectors only see the candidate's OpenChat handle and form data (name, car details). No identity documents are exchanged.
 
@@ -636,27 +664,39 @@ governanceBanDriver(RegistryGovernanceBanDriverContract) -> RegistryGovernanceBa
    driverRegister(DriverRegisterContract) → Registry
    Status → #Pending. Form is locked — no edits allowed after submission.
 
-2. Driver completes liveness check on decide.ai (off-chain).
+2. UI calls depositSubaccountGet(#DriverRegistration) → Governance
+   Governance reads driverRegistrationFee from Registry.governanceGetConfig().
+   Returns { depositId, subaccount, amount }.
+   UI displays subaccount address and required amount to the driver.
+
+3. Driver sends registration fee to the displayed subaccount on the ICP Ledger.
+   Driver presses "I have paid".
+   UI calls depositConfirmDriverRegistration(depositId) → Governance
+   Governance verifies ICP Ledger balance of deposit.subaccount >= deposit.amount.
+   Governance calls registryDriverPaymentConfirmed(driver) → Registry.
+   Status → #PendingLiveness.
+
+4. Driver completes liveness check on decide.ai (off-chain).
    Driver submits liveness proof:
    driverSubmitLiveness(livenessHash) → Registry
    Registry calls KYC_PROVIDER_CANISTER_ID to confirm livenessHash = verified.
    Status → #PendingInspection.
 
-3. Registry selects 1–3 active drivers with highest voting power from the same region.
+5. Registry selects 1–3 active drivers with highest voting power from the same region.
    Calls REPUTATION_CANISTER_ID.inspectionAssign(candidateId, selectedInspectors[]).
    Frontend notifies inspectors via their OpenChat handles.
 
-4. Each inspector initiates a video call with the candidate via OpenChat.
+6. Each inspector initiates a video call with the candidate via OpenChat.
    Inspector checks:
-     · Candidate speaks Lithuanian (or other required languages).
+     · Candidate speaks required language(s).
      · Car is physically the car described in the registration form.
      · No documents are requested; no privacy data is collected.
 
-5. Inspector submits outcome:
-   driverInspectionConfirm({ inspectionId, outcome: #Confirmed | #Rejected }) → Registry
+7. Inspector submits outcome:
+   driverInspectionConfirm({ inspectionId, outcome: #Confirmed | #Rejected }) → Reputation
 
-6. If confirmed count >= _minConfirmations:
-   · Status → #Active.
+8. If confirmed count >= _minConfirmations:
+   · Reputation calls registryActivateDriver(driver) → Registry. Status → #Active.
    · matchingCanisterId set from regionMappings[region].
    · Inspector fee distributed (if _inspectionFeePerInspector > 0).
 
@@ -682,7 +722,18 @@ governanceBanDriver(RegistryGovernanceBanDriverContract) -> RegistryGovernanceBa
 ### 7.3 Cleanup / pruning
 ```
 Inactive drivers will be pruned with worker.mo after 90 Days (INACTIVE_DRIVER_PRUNING_PERIOD) if he has voting power less when 0.1% (INACTIVE_DRIVER_MINIMAL_VOTING_POWER)
+```
 
+### 7.4 Expired Pending Registration Cleanup
+```
+Drivers stuck in #Pending (form submitted but registration fee never paid) are deleted by worker.mo
+after PENDING_REGISTRATION_EXPIRY_PERIOD (30 days).
+
+The Governance deposit for the #DriverRegistration type is also marked #Expired by Governance worker.mo
+and any paid-but-unconfirmed funds are swept to the Governance treasury.
+
+After deletion the driver principal is treated as never having applied.
+Validator 1 of driverRegister() passes and the driver may re-register from scratch.
 ```
 
 
@@ -702,6 +753,8 @@ canister_registry/
 └── worker.mo             — Heartbeat-driven background tasks:
                           · Lift expired suspensions (suspendedUntil < now → #Active)
                           · Reset call-rate counters every 24H
+                          · Delete #Pending driver registrations older than PENDING_REGISTRATION_EXPIRY_PERIOD
+                            (fee was never paid; record removed; driver may re-register from scratch)
                           · TODO: mark inactive drivers (lastActiveAt > INACTIVE_THRESHOLD_DAYS)
 
 tests/
@@ -741,5 +794,4 @@ system func postupgrade() {
 | DecideAI liveness inter-canister API | High | DecideAI canister interface not yet defined — placeholder in validators.mo |
 | Inspector notification mechanism | High | Frontend must notify inspectors via OpenChat; on-chain trigger to be defined |
 | Rider governance suspend/ban | Medium | Mirror driver suspend/ban flow |
-| `ProposalTarget` extension | High | Add `#Registry` variant to Governance canister `ProposalTarget` type |
 | Monitoring dashboard integration | Low | `supportCounters()` endpoint is ready; consumer to be defined |
