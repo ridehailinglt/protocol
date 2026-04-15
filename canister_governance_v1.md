@@ -36,12 +36,13 @@ Key design properties:
 ```motoko
 // constants.mo
 module Constants {
-   public let GATEWAY_CANISTER_ID : Principal = Principal.fromText("...");
-   public let REGISTRY_CANISTER_ID : Principal = Principal.fromText("...");
-   public let MATCHING_CANISTER_ID : Principal = Principal.fromText("...");
-   public let PAYMENT_CANISTER_ID : Principal = Principal.fromText("...");
-   public let REPUTATION_CANISTER_ID : Principal = Principal.fromText("...");
-   public let AI_CANISTER_ID : Principal = Principal.fromText("...");
+   // Gateway is independent and can be many. Governance manages all of them.
+   public let GATEWAY_CANISTER_IDS    : [Principal] = [];  // Array — Governance manages multiple Gateways
+   public let REGISTRY_CANISTER_ID    : Principal = Principal.fromText("...");
+   public let REPUTATION_CANISTER_ID  : Principal = Principal.fromText("...");
+   public let MATCHING_CANISTER_ID    : Principal = Principal.fromText("...");
+   public let PAYMENT_CANISTER_ID     : Principal = Principal.fromText("...");
+   public let AI_CANISTER_ID          : Principal = Principal.fromText("...");
 
    public let VOTING_PERIOD_FAST : Nat64 = 3 * 24 * 60 * 60;  // 3 days in seconds
    public let VOTING_PERIOD_SLOW : Nat64 = 5 * 24 * 60 * 60;  // 5 days in seconds
@@ -88,17 +89,19 @@ module Types {
     ///   - It is impossible to construct an invalid Canister → Method combination.
     public type ProposalTarget = {
         #Governance : GovernanceMethod;
-        #Gateway    : GatewayMethod;
+        #Gateway    : GatewayMethod;    // Applied to a specific Gateway identified by targetCanister
         #Matching   : MatchingMethod;
         #Registry   : RegistryMethod;
+        #Reputation : ReputationMethod;
     };
 
     /// All governance-callable methods on the Governance canister.
     public type GovernanceMethod = {
-        #UpdateFee     : GovernanceGovernanceUpdateFeeContract;
+        #UpdateFee : GovernanceGovernanceUpdateFeeContract;
     };
 
     /// All governance-callable methods on the Gateway canister.
+    /// Proposals targeting a Gateway use targetCanister to identify which Gateway instance.
     public type GatewayMethod = {
         #UpdateFee     : GatewayGovernanceUpdateFeeContract;
         #UpdatePeriods : GatewayGovernanceUpdatePeriodsContract;
@@ -114,11 +117,15 @@ module Types {
 
     /// All governance-callable methods on the Registry canister.
     public type RegistryMethod = {
-        #UpdateFees           : RegistryGovernanceUpdateFeesContract;
-        #SuspendDriver        : RegistryGovernanceSuspendDriverContract;
-        #BanDriver            : RegistryGovernanceBanDriverContract;
-        #UpdateInspectorCount : RegistryGovernanceUpdateInspectorCountContract;
-        #UpdateInspectionFee  : RegistryGovernanceUpdateInspectionFeeContract;
+        #UpdateFees    : RegistryGovernanceUpdateFeesContract;
+        #SuspendDriver : RegistryGovernanceSuspendDriverContract;
+        #BanDriver     : RegistryGovernanceBanDriverContract;
+    };
+
+    /// All governance-callable methods on the Reputation canister.
+    public type ReputationMethod = {
+        #UpdateInspectorCount : ReputationGovernanceUpdateInspectorCountContract;
+        #UpdateInspectionFee  : ReputationGovernanceUpdateInspectionFeeContract;
     };
 
 
@@ -194,6 +201,26 @@ module Types {
         voteType    : { #Approve; #Reject };
         votingPower : Nat;  // Snapshot of the voter's DRV balance at the time of voting
     };
+
+
+    // ==========================================
+    // --- 6. GOVERNANCE ALL CONFIGS TYPE     ---
+    // ==========================================
+
+    /// Per-Gateway config entry. Gateway is identified by its canister ID.
+    public type GatewayConfigEntry = {
+        canisterId : CanisterId;
+        config     : ?GatewayGovernanceConfig;  // Null if Gateway did not respond
+    };
+
+    /// Aggregate response returned by governanceGetAllConfigs() composite query.
+    /// Gateway is a slice — Governance manages potentially many Gateway instances.
+    /// Registry and Reputation are singletons.
+    public type GovernanceAllConfigsResponse = {
+        gateways   : [GatewayConfigEntry];         // One entry per managed Gateway canister
+        registry   : ?RegistryGovernanceConfig;    // Null if Registry did not respond
+        reputation : ?ReputationGovernanceConfig;  // Null if Reputation did not respond
+    };
 }
 ```
 
@@ -258,29 +285,48 @@ module Types {
         #err : Text;
     };
 
-    /// Payload for registryGovernanceUpdateInspectorCount — adjusts peer inspection parameters.
-    public type RegistryGovernanceUpdateInspectorCountContract = {
+    /// Config record — mirrors RegistryGovernanceConfig in canister_registry_v1.md.
+    public type RegistryGovernanceConfig = {
+        driverRegistrationFee : Nat;
+        riderRegistrationFee  : Nat;
+    };
+
+
+    // ==========================================
+    // --- 3. REPUTATION GOVERNANCE TYPES     ---
+    // ==========================================
+
+    /// Payload for reputationGovernanceUpdateInspectorCount.
+    public type ReputationGovernanceUpdateInspectorCountContract = {
         minConfirmations : Nat;  // Min inspectors that must confirm (1–3)
         maxInspectors    : Nat;  // Max inspectors assigned per candidate (1–3)
     };
 
-    public type RegistryGovernanceUpdateInspectorCountResponse = {
+    public type ReputationGovernanceUpdateInspectorCountResponse = {
         #ok  : { minConfirmations : Nat; maxInspectors : Nat };
         #err : Text;
     };
 
-    /// Payload for registryGovernanceUpdateInspectionFee — adjusts fee paid to each confirming inspector.
-    public type RegistryGovernanceUpdateInspectionFeeContract = {
+    /// Payload for reputationGovernanceUpdateInspectionFee.
+    public type ReputationGovernanceUpdateInspectionFeeContract = {
         inspectionFeePerInspector : Nat;  // ICP e8s paid to each confirming inspector
     };
 
-    public type RegistryGovernanceUpdateInspectionFeeResponse = {
+    public type ReputationGovernanceUpdateInspectionFeeResponse = {
         #ok  : { inspectionFeePerInspector : Nat };
         #err : Text;
     };
 
+    /// Config record — mirrors ReputationGovernanceConfig in canister_reputation_v1.md.
+    public type ReputationGovernanceConfig = {
+        minConfirmations          : Nat;
+        maxInspectors             : Nat;
+        inspectionFeePerInspector : Nat;
+    };
+
+
     // ==========================================
-    // --- 3. GATEWAY GOVERNANCE TYPES        ---
+    // --- 4. GATEWAY GOVERNANCE TYPES        ---
     // ==========================================
 
     /// Payload for governanceUpdateFee — adjusts Gateway and Clone registration fees.
@@ -318,6 +364,20 @@ module Types {
     public type GatewayGovernanceUpdateLimitsResponse = {
         #ok  : { limits : GatewayGovernanceUpdateLimitsContract };
         #err : Text;
+    };
+
+    /// Config record — mirrors GatewayGovernanceConfig in canister_gateway_v1.md.
+    public type GatewayGovernanceConfig = {
+        gatewayRegistrationFee  : Nat;
+        canisterRegistrationFee : Nat;
+        depositExpiryPeriod     : Nat;
+        quarantineExpiryPeriod  : Nat;
+        gatewaySyncPeriod       : Nat;
+        gatewaySyncAllPeriod    : Nat;
+        cloneSyncPeriod         : Nat;
+        gatewaySyncLimit        : Nat;
+        gatewaySyncAllLimit     : Nat;
+        cloneSyncLimit          : Nat;
     };
 
     /// Payload for governanceQuarantine — quarantine or lift quarantine on a Gateway.
@@ -442,16 +502,16 @@ executeProposal(proposalId) -> Result<(), Error>
 
         switch (payload.target) {
             case (#Governance(#UpdateFee(args)))                    { /* call governanceGovernanceUpdateFee(args) */ };
-            case (#Gateway(#UpdateFee(args)))                       { /* call governanceUpdateFee(args) */ };
-            case (#Gateway(#UpdatePeriods(args)))                   { /* call governanceUpdatePeriods(args) */ };
-            case (#Gateway(#UpdateLimits(args)))                    { /* call governanceUpdateLimits(args) */ };
-            case (#Gateway(#Quarantine(args)))                      { /* call governanceQuarantine(args) */ };
+            case (#Gateway(#UpdateFee(args)))                       { /* call governanceUpdateFee(args) on targetCanister */ };
+            case (#Gateway(#UpdatePeriods(args)))                   { /* call governanceUpdatePeriods(args) on targetCanister */ };
+            case (#Gateway(#UpdateLimits(args)))                    { /* call governanceUpdateLimits(args) on targetCanister */ };
+            case (#Gateway(#Quarantine(args)))                      { /* call governanceQuarantine(args) on targetCanister */ };
             case (#Matching(#UpdateRadius(args)))                   { /* call matchingUpdateRadius(args) */ };
             case (#Registry(#UpdateFees(args)))                     { /* call registryGovernanceUpdateFees(args) */ };
             case (#Registry(#SuspendDriver(args)))                  { /* call registryGovernanceSuspendDriver(args) */ };
             case (#Registry(#BanDriver(args)))                      { /* call registryGovernanceBanDriver(args) */ };
-            case (#Registry(#UpdateInspectorCount(args)))           { /* call registryGovernanceUpdateInspectorCount(args) */ };
-            case (#Registry(#UpdateInspectionFee(args)))            { /* call registryGovernanceUpdateInspectionFee(args) */ };
+            case (#Reputation(#UpdateInspectorCount(args)))         { /* call reputationGovernanceUpdateInspectorCount(args) */ };
+            case (#Reputation(#UpdateInspectionFee(args)))          { /* call reputationGovernanceUpdateInspectionFee(args) */ };
         };
 
     - On success: mark proposal as #Executed. Return 10 ICP deposit to proposer.
@@ -477,6 +537,23 @@ governanceGovernanceUpdateFee(args : GovernanceGovernanceUpdateFeeContract) -> R
     - Update the fee in the Governance canister.
     - Mark proposal as #Executed.
 ```
+
+### 5.6 Get All Configs (Composite Query)
+
+```
+// composite query — called by the UI to get all governance-controlled config values.
+// No caller check (public query). Fans out in parallel to all managed canisters.
+governanceGetAllConfigs() -> GovernanceAllConfigsResponse
+```
+
+- Calls `governanceGetConfig()` on **each Gateway** in `GATEWAY_CANISTER_IDS[]` in parallel.
+- Calls `governanceGetConfig()` on **Registry** and **Reputation** in parallel.
+- If a canister does not respond or returns an error, its slot is `null` in the response — partial failures do not fail the whole call.
+- Returns `GovernanceAllConfigsResponse` with all available configs.
+
+> **ICP composite query:** This endpoint is implemented as a Motoko `composite query` — it can call other canisters' `query` functions from within a query call. No state changes occur.
+
+---
 
 ## 6. Business Rules & Invariants
 

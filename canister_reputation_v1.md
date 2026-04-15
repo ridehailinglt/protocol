@@ -153,6 +153,20 @@ module Types {
         #ok  : { inspectionFeePerInspector : Nat };
         #err : Text;
     };
+
+
+    // ==========================================
+    // --- 2. GOVERNANCE CONFIG TYPE          ---
+    // ==========================================
+
+    /// All live configurable values for the Reputation canister.
+    /// Returned by governanceGetConfig() composite query via Governance.
+    public type ReputationGovernanceConfig = {
+        minConfirmations          : Nat;
+        maxInspectors             : Nat;
+        inspectionFeePerInspector : Nat;
+    };
+
 }
 ```
 
@@ -281,6 +295,16 @@ Returns a snapshot of all call counters. Counters are reset every 24H by `worker
 ---
 
 ### 5.6 Governance
+
+```
+// query — called by Governance canister composite query. No caller check (public query).
+// Returns all live configurable values in a single typed record.
+governanceGetConfig() -> ReputationGovernanceConfig
+```
+
+Returns the current live state of all governance-controlled constants. Used by `Governance.governanceGetAllConfigs()` composite query.
+
+---
 
 ```
 // Called from Governance canister to adjust inspector count requirements.
@@ -447,5 +471,4 @@ system func postupgrade() {
 | Inspector notification mechanism | High | Frontend must notify inspectors via OpenChat; on-chain trigger to be defined |
 | Inspector fee distribution | High | Mirror Gateway `DepositDao` pattern when `_inspectionFeePerInspector > 0` |
 | Inspection expiry / retry logic | Medium | What happens if all inspectors reject or fail to respond? Retry flow TBD |
-| `ProposalTarget` extension | High | Add `#Reputation` variant to Governance canister `ProposalTarget` type |
 | Monitoring dashboard integration | Low | `supportCounters()` endpoint is ready; consumer to be defined |

@@ -219,7 +219,27 @@ module Types {
 
 
     // ==========================================
-    // --- 6. SUPPORT TYPES                   ---
+    // --- 6. GOVERNANCE CONFIG TYPE          ---
+    // ==========================================
+
+    /// All live configurable values for the Gateway canister.
+    /// Returned by governanceGetConfig() composite query via Governance.
+    public type GatewayGovernanceConfig = {
+        gatewayRegistrationFee  : Nat;
+        canisterRegistrationFee : Nat;
+        depositExpiryPeriod     : Nat;
+        quarantineExpiryPeriod  : Nat;
+        gatewaySyncPeriod       : Nat;
+        gatewaySyncAllPeriod    : Nat;
+        cloneSyncPeriod         : Nat;
+        gatewaySyncLimit        : Nat;
+        gatewaySyncAllLimit     : Nat;
+        cloneSyncLimit          : Nat;
+    };
+
+
+    // ==========================================
+    // --- 7. SUPPORT TYPES                   ---
     // ==========================================
 
     /// Snapshot of call counters. Exposed via supportCounters() for external monitoring.
@@ -468,6 +488,16 @@ Returns a snapshot of all call counters. Counters are reset every 24H by `worker
 ### 5.7 Governance
 
 ```
+// query — called by Governance canister composite query. No caller check (public query).
+// Returns all live configurable values in a single typed record.
+governanceGetConfig() -> GatewayGovernanceConfig
+```
+
+Returns the current live state of all governance-controlled constants. Used by `Governance.governanceGetAllConfigs()` composite query to build the UI proposal form without the UI needing to know individual canister IDs.
+
+---
+
+```
 // Called from Governance canister to change gateway canister fees
 // msg.caller must match governance canister principal
 governanceUpdateFee(GatewayGovernanceUpdateFeeContract) -> GatewayGovernanceUpdateFeeResponse
@@ -477,7 +507,7 @@ governanceUpdateFee(GatewayGovernanceUpdateFeeContract) -> GatewayGovernanceUpda
 
   Logic:
   - Update gateway canister fees in state
-  
+
 
 governanceUpdatePeriods(GatewayGovernanceUpdatePeriodsContract) -> GatewayGovernanceUpdatePeriodsResponse
 

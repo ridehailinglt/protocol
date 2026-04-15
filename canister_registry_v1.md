@@ -287,6 +287,18 @@ module Types {
         #err : Text;
     };
 
+
+    // ==========================================
+    // --- 3. GOVERNANCE CONFIG TYPE          ---
+    // ==========================================
+
+    /// All live configurable values for the Registry canister.
+    /// Returned by governanceGetConfig() composite query via Governance.
+    public type RegistryGovernanceConfig = {
+        driverRegistrationFee : Nat;
+        riderRegistrationFee  : Nat;
+    };
+
 }
 ```
 
@@ -469,6 +481,16 @@ Returns a snapshot of all call counters. Counters are reset every 24H by `worker
 ---
 
 ### 5.10 Governance
+
+```
+// query — called by Governance canister composite query. No caller check (public query).
+// Returns all live configurable values in a single typed record.
+governanceGetConfig() -> RegistryGovernanceConfig
+```
+
+Returns the current live state of all governance-controlled constants. Used by `Governance.governanceGetAllConfigs()` composite query.
+
+---
 
 ```
 // Called from Governance canister to adjust registration fees.
