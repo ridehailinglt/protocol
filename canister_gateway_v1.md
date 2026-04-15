@@ -6,7 +6,7 @@
 
 ## 1. Overview & Vision
 
-The **Gateway Canister** is the directory and routing backbone of the decentralised Hydra Mobility Mesh. A globally distributed mesh of independent Gateway canisters acts as a resilient, peer-to-peer registry with no single point of failure — analogous to a gossip-protocol overlay network.
+The **Gateway Canister** is the directory and routing backbone of the decentralised Hydra Mobility Mesh. A globally distributed mesh of independent Gateway canisters acts as a resilient, peer-to-peer registry with no single point of failure — analogous to a gossip-protocol overlay network. It can function independently of other canisters, but can be governed by the Governance canister. It has build in subaccount logic for deposits and fees and processes deposits and fees via worker.mo. It manages its cycles independly, but Governance canister acts as a fallback for cycle management.
 
 Key design properties:
 

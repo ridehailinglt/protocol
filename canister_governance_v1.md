@@ -6,7 +6,7 @@
 
 ## 1. Overview & Vision
 
-The **Governance Canister** is the local brain of a Hydra Mobility instance. It manages the **DRV (Voting Point)** ledger, handles driver-submitted proposals, and executes approved changes on the regional Gateway and Matching canisters.
+The **Governance Canister** is the local brain of a Hydra Mobility instance. It manages the **DRV (Voting Point)** ledger, handles driver-submitted proposals, and executes approved changes on the regional Gateway, Registry, Reputation, Matching, AI canisters. It has subaccount logic for deposits and fees and processes deposits and fees via worker.mo. It manges subacounts for Registry, Reputation canisters.  It manages its cycles independly. And manages cycles for Registry, Reputation, Maching, AI canisters. Manages cycles for Gateway canister as fallback. It governs itself.
 
 Key design properties:
 

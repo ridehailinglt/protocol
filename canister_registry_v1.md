@@ -6,7 +6,7 @@
 
 ## 1. Overview & Vision
 
-The **Registry Canister** is the identity and onboarding backbone of the Hydra Mobility Protocol. It manages driver and rider registration, performs liveness verification, and routes users to the correct city-level Matching canister via deterministic regional mapping.
+The **Registry Canister** is the identity and onboarding backbone of the Hydra Mobility Protocol. It manages driver and rider registration, performs liveness verification, and routes users to the correct city-level Matching canister via deterministic regional mapping. This canister functions with other canisters. It don't have subaccount logic and relies on Governance canister. Cycles are managed by Governance canister.
 
 Key design properties:
 
@@ -132,8 +132,6 @@ module Types {
         lastActiveAt       : Timestamp;
         suspendedUntil     : ?Timestamp;     // Null if not suspended
         suspendReason      : Text;           // Empty if not suspended
-        // --- Inspection ---
-        inspectionIds      : [InspectionId]; // IDs of peer inspection records for this driver
     };
 
     /// Public-facing record shared with other canisters.
@@ -215,41 +213,7 @@ module Types {
 
 
     // ==========================================
-    // --- 5. DRIVER INSPECTION TYPES         ---
-    // ==========================================
-
-    public type InspectionId = Nat64;
-
-    public type InspectionStatus = {
-        #Pending;    // Inspector has been assigned; video call not yet completed
-        #Confirmed;  // Inspector confirmed the candidate passes
-        #Rejected;   // Inspector rejected the candidate
-    };
-
-    /// One peer inspection record — one inspector, one candidate driver.
-    public type DriverInspectionDao = {
-        id             : InspectionId;
-        candidateId    : AccountId;       // The driver being inspected
-        inspectorId    : AccountId;       // The active driver conducting the inspection
-        status         : InspectionStatus;
-        assignedAt     : Timestamp;
-        completedAt    : ?Timestamp;      // Null until inspector submits result
-    };
-
-    /// Submitted by an inspector to record their inspection outcome.
-    public type DriverInspectionConfirmContract = {
-        inspectionId : InspectionId;
-        outcome      : { #Confirmed; #Rejected };
-    };
-
-    public type DriverInspectionConfirmResponse = {
-        #ok  : { inspectionId : InspectionId; candidateStatus : DriverRegistryStatus };
-        #err : Text;
-    };
-
-
-    // ==========================================
-    // --- 6. REGION MAPPING TYPES            ---
+    // --- 5. REGION MAPPING TYPES            ---
     // ==========================================
 
     /// Maps a region (city + country) to the Principal of the responsible Matching canister.
@@ -267,18 +231,16 @@ module Types {
 
 
     // ==========================================
-    // --- 7. SUPPORT TYPES                   ---
+    // --- 6. SUPPORT TYPES                   ---
     // ==========================================
 
     /// Snapshot of call counters. Exposed via supportCounters() for external monitoring.
     /// Counters are reset every 24H by worker.mo.
     public type SupportCounters = {
-        driverRegister     : Nat;
-        riderRegister      : Nat;
-        driverLookup       : Nat;
-        riderLookup        : Nat;
-        inspectionAssigned : Nat;
-        inspectionConfirmed: Nat;
+        driverRegister : Nat;
+        riderRegister  : Nat;
+        driverLookup   : Nat;
+        riderLookup    : Nat;
     };
 }
 ```
@@ -325,26 +287,6 @@ module Types {
         #err : Text;
     };
 
-    /// Payload for governanceUpdateInspectorCount — adjusts required confirmation count.
-    public type RegistryGovernanceUpdateInspectorCountContract = {
-        minConfirmations : Nat;  // Min inspectors required (1–3)
-        maxInspectors    : Nat;  // Max inspectors assigned per candidate (1–3)
-    };
-
-    public type RegistryGovernanceUpdateInspectorCountResponse = {
-        #ok  : { minConfirmations : Nat; maxInspectors : Nat };
-        #err : Text;
-    };
-
-    /// Payload for governanceUpdateInspectionFee — adjusts inspector payout.
-    public type RegistryGovernanceUpdateInspectionFeeContract = {
-        inspectionFeePerInspector : Nat;  // ICP e8s paid to each confirming inspector
-    };
-
-    public type RegistryGovernanceUpdateInspectionFeeResponse = {
-        #ok  : { inspectionFeePerInspector : Nat };
-        #err : Text;
-    };
 }
 ```
 
@@ -357,7 +299,6 @@ module Types {
 drivers        : TrieMap<AccountId, DriverDao>
 riders         : TrieMap<AccountId, RiderDao>
 regionMappings : TrieMap<Text, RegionMappingDao>    // key: "city:country"
-inspections    : TrieMap<InspectionId, DriverInspectionDao>
 ```
 
 ---
@@ -365,17 +306,10 @@ inspections    : TrieMap<InspectionId, DriverInspectionDao>
 ```motoko
 // main.mo
 // --- Call counters (reset every 24H by worker.mo) ---
-var _counterDriverRegister      : Nat = 0;
-var _counterRiderRegister       : Nat = 0;
-var _counterDriverLookup        : Nat = 0;
-var _counterRiderLookup         : Nat = 0;
-var _counterInspectionAssigned  : Nat = 0;
-var _counterInspectionConfirmed : Nat = 0;
-
-// --- Inspection settings (adjustable via governance) ---
-var _minConfirmations        : Nat = 1;          // Min inspector confirmations required to activate driver
-var _maxInspectors           : Nat = 3;          // Max inspectors assigned per candidate
-var _inspectionFeePerInspector : Nat = 0;        // ICP e8s paid per confirming inspector (TBD via governance)
+var _counterDriverRegister : Nat = 0;
+var _counterRiderRegister  : Nat = 0;
+var _counterDriverLookup   : Nat = 0;
+var _counterRiderLookup    : Nat = 0;
 
 // --- Version (incremented on every canister upgrade) ---
 // Used in postupgrade migrations to detect state schema changes.
@@ -436,7 +370,7 @@ driverSubmitLiveness(livenessHash : LivenessHash) -> Result<(), Text>
     - Update driver.livenessHash.
     - Update driver.status = #PendingInspection.
     - Randomly select 1–_maxInspectors active drivers with highest voting power from the same region.
-    - Create a DriverInspectionDao for each selected inspector.
+    - Call REPUTATION_CANISTER_ID.inspectionAssign(candidateId, selectedInspectors[]).
     - Notify each inspector's OpenChat handle (off-chain; handled by frontend/notification layer).
     - Return #ok.
 
@@ -446,28 +380,21 @@ driverSubmitLiveness(livenessHash : LivenessHash) -> Result<(), Text>
 
 ---
 
-### 5.4 Inspector Confirm
+### 5.4 Registry Activate Driver (Reputation contract call)
 
 ```
-// Public. msg.caller must be an assigned inspector.
-// Step 3 — inspector records the outcome of their video call inspection.
-driverInspectionConfirm(DriverInspectionConfirmContract) -> DriverInspectionConfirmResponse
+// Internal. msg.caller must match Reputation canister principal.
+// Called by Reputation canister when inspectionConfirmedCount >= _minConfirmations.
+registryActivateDriver(candidateId : AccountId) -> Result<(), Text>
 
   Validators (in order):
-    1. msg.caller is assigned as inspector for the given inspectionId.
-    2. Inspection status is #Pending.
-    3. Candidate driver status is #PendingInspection.
+    1. msg.caller must match REPUTATION_CANISTER_ID.
+    2. Driver exists and status is #PendingInspection.
 
   On success:
-    - Update DriverInspectionDao.status = contract.outcome.
-    - Count all #Confirmed inspections for the candidate.
-    - If confirmedCount >= _minConfirmations:
-        · Set driver.status = #Active.
-        · Set driver.matchingCanisterId from regionMappings[region].
-        · Pay _inspectionFeePerInspector ICP e8s to each confirming inspector (if fee > 0).
-    - If all inspectors responded and confirmedCount < _minConfirmations:
-        · Keep driver in #PendingInspection (future governance or retry logic TBD).
-    - Return DriverInspectionConfirmResponse.
+    - Set driver.status = #Active.
+    - Set driver.matchingCanisterId from regionMappings[region].
+    - Return #ok.
 
   On any validation failure:
     - Return #err with descriptive Text.
@@ -579,27 +506,6 @@ governanceBanDriver(RegistryGovernanceBanDriverContract) -> RegistryGovernanceBa
   - Set driver.status = #Banned. suspendedUntil = null.
 
 
-// Called from Governance canister to adjust inspector count requirements.
-// msg.caller must match governance canister principal.
-governanceUpdateInspectorCount(RegistryGovernanceUpdateInspectorCountContract) -> RegistryGovernanceUpdateInspectorCountResponse
-
-  Validators:
-  1. msg.caller must match governance canister principal.
-  2. minConfirmations >= 1 and maxInspectors <= 3 and minConfirmations <= maxInspectors.
-
-  Logic:
-  - Update _minConfirmations and _maxInspectors in state.
-
-
-// Called from Governance canister to adjust the fee paid to each confirming inspector.
-// msg.caller must match governance canister principal.
-governanceUpdateInspectionFee(RegistryGovernanceUpdateInspectionFeeContract) -> RegistryGovernanceUpdateInspectionFeeResponse
-
-  Validators:
-  1. msg.caller must match governance canister principal.
-
-  Logic:
-  - Update _inspectionFeePerInspector in state.
 ```
 
 ---
@@ -667,16 +573,18 @@ governanceUpdateInspectionFee(RegistryGovernanceUpdateInspectionFeeContract) -> 
 
 ---
 
-### 6.6 Inspection Inspector Selection Rules
+### 6.6 Reputation Canister Delegation
 
-| Rule | Detail |
-|------|--------|
-| Pool | Only `#Active` drivers from the same region are eligible |
-| Selection | Ordered by voting power (highest first); top `_maxInspectors` selected |
-| Count | 1 to `_maxInspectors` inspectors assigned (default max: 3) |
-| Confirmation threshold | `_minConfirmations` confirmations required (default: 1) |
-| Form lock | Driver form data is read-only once submitted; inspectors see exactly what was filed |
-| No documents | Inspectors do NOT check any identity documents; visual and language check only |
+| Concern | Handled by |
+|---------|------------|
+| Inspector selection | Registry selects active drivers by voting power, passes list to `REPUTATION_CANISTER_ID.inspectionAssign()` |
+| Inspection records | Reputation canister owns all `DriverInspectionDao` state |
+| Inspector confirmation (`driverInspectionConfirm`) | Reputation canister public API |
+| Driver activation on threshold | Reputation calls `registryActivateDriver()` on Registry |
+| Inspector fee distribution | Reputation canister |
+| Inspection status query | Registry calls `REPUTATION_CANISTER_ID.inspectionStatus(candidateId)` |
+
+> See `canister_reputation_v1.md` for the full Reputation canister specification.
 
 ---
 
@@ -686,10 +594,8 @@ governanceUpdateInspectionFee(RegistryGovernanceUpdateInspectionFeeContract) -> 
 |------|--------|
 | Driver fee | 0 ICP default (TBD via governance) |
 | Rider fee | 0 ICP (always free) |
-| Inspector fee | `_inspectionFeePerInspector` ICP e8s paid per confirming inspector. Default 0. |
+| Inspector fee | Managed by Reputation canister. See `canister_reputation_v1.md`. |
 | Change authority | Governance canister only |
-
-> **Note:** Inspector fee distribution is triggered automatically on driver activation. Mirror Gateway `DepositDao` pattern if non-zero fees are introduced.
 
 ---
 
@@ -715,7 +621,7 @@ governanceUpdateInspectionFee(RegistryGovernanceUpdateInspectionFeeContract) -> 
    Status → #PendingInspection.
 
 3. Registry selects 1–3 active drivers with highest voting power from the same region.
-   Creates DriverInspectionDao for each inspector.
+   Calls REPUTATION_CANISTER_ID.inspectionAssign(candidateId, selectedInspectors[]).
    Frontend notifies inspectors via their OpenChat handles.
 
 4. Each inspector initiates a video call with the candidate via OpenChat.
@@ -775,7 +681,6 @@ canister_registry/
                           · Lift expired suspensions (suspendedUntil < now → #Active)
                           · Reset call-rate counters every 24H
                           · TODO: mark inactive drivers (lastActiveAt > INACTIVE_THRESHOLD_DAYS)
-                          · TODO: expire stale inspections (driver stays in #PendingInspection; retry logic TBD)
 
 tests/
 ├── tests.[module_name].mops       — Unit tests (per module)
@@ -813,8 +718,6 @@ system func postupgrade() {
 |------|----------|-------|
 | DecideAI liveness inter-canister API | High | DecideAI canister interface not yet defined — placeholder in validators.mo |
 | Inspector notification mechanism | High | Frontend must notify inspectors via OpenChat; on-chain trigger to be defined |
-| Inspector fee distribution | High | Mirror Gateway `DepositDao` pattern when `_inspectionFeePerInspector > 0` |
-| Inspection expiry / retry logic | Medium | What happens if all inspectors reject or fail to respond? Retry flow TBD |
 | Rider governance suspend/ban | Medium | Mirror driver suspend/ban flow |
 | `ProposalTarget` extension | High | Add `#Registry` variant to Governance canister `ProposalTarget` type |
 | Monitoring dashboard integration | Low | `supportCounters()` endpoint is ready; consumer to be defined |
