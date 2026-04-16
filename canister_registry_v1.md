@@ -72,6 +72,9 @@ module Constants {
     // Liveness expiry — drivers stuck in #PendingLiveness (fee paid, liveness not completed) are deleted.
     // Registration fee is NOT refunded. Driver re-registers from scratch.
     public let PENDING_LIVENESS_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+
+    // Inspection expiry — drivers stuck in #PendingInspection without confirmation are deleted.
+    public let PENDING_INSPECTION_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
 }
 ```
 
@@ -137,6 +140,7 @@ module Types {
         status             : DriverRegistryStatus;
         registeredAt       : Timestamp;
         pendingLivenessAt  : ?Timestamp;     // Set when status transitions to #PendingLiveness (payment confirmed)
+        pendingInspectionAt: ?Timestamp;     // Set when status transitions to #PendingInspection (liveness passed)
         lastActiveAt       : Timestamp;
         suspendedUntil     : ?Timestamp;     // Null if not suspended
         suspendReason      : Text;           // Empty if not suspended
@@ -390,6 +394,7 @@ driverSubmitLiveness(livenessHash : LivenessHash) -> Result<(), Text>
   On success:
     - Update driver.livenessHash.
     - Update driver.status = #PendingInspection.
+    - Update driver.pendingInspectionAt = now().
     - Collect all #Active drivers in the same region (excluding candidate) from state.drivers.
     - Call REPUTATION_CANISTER_ID.inspectionAssign(candidateId, eligibleDrivers[]).
       Reputation selects inspectors, assigns records, manages the full inspection lifecycle.
@@ -447,7 +452,30 @@ registryActivateDriver(candidateId : AccountId) -> Result<(), Text>
 
 ---
 
-### 5.6 Rider Registration
+### 5.6 Registry Inspection Failed (Reputation contract call)
+
+```
+// Internal. msg.caller must match Reputation canister principal.
+// Called by Reputation canister when an inspection definitively fails
+// (e.g., all responded but confirmedCount < _minConfirmations).
+registryInspectionFailed(candidateId : AccountId) -> Result<(), Text>
+
+  Validators (in order):
+    1. msg.caller must match REPUTATION_CANISTER_ID.
+    2. Driver exists and status is #PendingInspection.
+
+  On success:
+    - Delete driver from state.drivers.
+    - (Registration fee is left locked in Governance; Governance worker sweeps it on expiry.)
+    - Return #ok.
+
+  On any validation failure:
+    - Return #err with descriptive Text.
+```
+
+---
+
+### 5.7 Rider Registration
 
 ```
 // Public. No caller check.
@@ -765,6 +793,20 @@ After deletion the driver principal is treated as never having applied.
 Validator 1 of driverRegister() passes and the driver may re-register from scratch (paying the fee again).
 ```
 
+### 7.6 Expired PendingInspection Cleanup
+```
+Drivers stuck in #PendingInspection (passed liveness, failed/timeout on inspection) are deleted by worker.mo
+after PENDING_INSPECTION_EXPIRY_PERIOD_SECONDS (30 days from pendingInspectionAt).
+
+The registration fee is NOT refunded. The Governance deposit remains #Paid and is swept to
+Governance treasury by Governance worker.mo on expiry.
+
+After deletion the driver principal is treated as never having applied.
+Validator 1 of driverRegister() passes and the driver may re-register from scratch (paying the fee again).
+
+Note: Reputation canister will also clean up matching staled DriverInspectionDao records on its side.
+```
+
 
 ## 8. Architecture
 
@@ -786,6 +828,8 @@ canister_registry/
                             (fee was never paid; record removed; driver may re-register from scratch)
                           · Delete #PendingLiveness driver registrations older than PENDING_LIVENESS_EXPIRY_PERIOD_SECONDS
                             (checked via pendingLivenessAt; fee is forfeited; driver re-registers from scratch)
+                          · Delete #PendingInspection driver registrations older than PENDING_INSPECTION_EXPIRY_PERIOD_SECONDS
+                            (checked via pendingInspectionAt; fee is forfeited; driver re-registers from scratch)
                           · TODO: mark inactive drivers (lastActiveAt > INACTIVE_THRESHOLD_DAYS)
 
 tests/

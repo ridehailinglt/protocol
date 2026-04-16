@@ -75,12 +75,13 @@ module Types {
 
     /// One peer inspection record — one inspector, one candidate driver.
     public type DriverInspectionDao = {
-        id             : InspectionId;
-        candidateId    : AccountId;       // The driver being inspected
-        inspectorId    : AccountId;       // The active driver conducting the inspection
-        status         : InspectionStatus;
-        assignedAt     : Timestamp;
-        completedAt    : ?Timestamp;      // Null until inspector submits result
+        id          : InspectionId;
+        candidateId : AccountId;
+        inspectorId : AccountId;
+        status      : InspectionStatus; // Default: #Pending
+        feePaid     : Bool;             // true if inspector was paid. Prevents double payment.
+        createdAt   : Timestamp;    
+        resolvedAt  : ?Timestamp;
     };
 
     /// Submitted by an inspector to record their inspection outcome.
@@ -224,14 +225,17 @@ inspectionAssign(candidateId : AccountId, eligibleDrivers : [AccountId]) -> Resu
 
   Validators (in order):
     1. msg.caller must match REGISTRY_CANISTER_ID.
-    2. eligibleDrivers is not empty.
-    3. candidateId has no existing #Pending inspections (idempotency guard).
+    2. candidateId has no existing #Pending inspections (idempotency guard).
 
   Logic:
+    - If eligibleDrivers.size() < _minConfirmations:
+        · Bootstrap Bypass mode: Not enough active drivers to inspect.
+        · Automatically call REGISTRY_CANISTER_ID.registryActivateDriver(candidateId).
+        · Return empty list [].
     - Call GOVERNANCE_CANISTER_ID.getUserTokensBatch(eligibleDrivers) to retrieve DRV balances.
     - Sort eligibleDrivers by DRV balance descending (highest voting power first).
     - Take the top min(len, _maxInspectors) drivers as the selected inspectors.
-    - Create a DriverInspectionDao for each selected inspector with status = #Pending.
+    - Create a DriverInspectionDao for each selected inspector with status = #Pending, feePaid = false.
     - Return the list of created InspectionIds.
 
   On any validation failure:
@@ -253,13 +257,22 @@ driverInspectionConfirm(DriverInspectionConfirmContract) -> DriverInspectionConf
 
   On success:
     - Update DriverInspectionDao.status = contract.outcome.
-    - Count all #Confirmed inspections for the candidate.
-    - If confirmedCount >= _minConfirmations:
-        · Set candidateActivated = true.
-        · Notify Registry canister (inter-canister call) to set driver.status = #Active.
-        · Pay _inspectionFeePerInspector ICP e8s to each confirming inspector (if fee > 0).
-    - If all inspectors responded and confirmedCount < _minConfirmations:
-        · Keep candidateActivated = false (future governance or retry logic TBD).
+    - Update DriverInspectionDao.resolvedAt = now().
+    
+    - If contract.outcome == #Confirmed:
+        · Count all #Confirmed inspections for the candidate.
+        · If confirmedCount == _minConfirmations (threshold just met):
+            - Notify Registry canister (inter-canister call) to set driver.status = #Active.
+        · If _inspectionFeePerInspector > 0 AND DriverInspectionDao.feePaid == false:
+            - Pay _inspectionFeePerInspector ICP e8s to msg.caller.
+            - Set DriverInspectionDao.feePaid = true.
+
+    - If contract.outcome == #Rejected:
+        · Check if ALL assigned inspectors have responded (no #Pending left).
+        · If total confirmedCount < _minConfirmations:
+            - Call REGISTRY_CANISTER_ID.registryInspectionFailed(candidateId).
+            - Registry handles cleanup and fee forfeit.
+            
     - Return DriverInspectionConfirmResponse.
 
   On any validation failure:
@@ -367,9 +380,10 @@ governanceUpdateInspectionFee(ReputationGovernanceUpdateInspectionFeeContract) -
 
 | Direction | Method | Purpose |
 |-----------|--------|---------|
-| Registry → Reputation | `inspectionAssign(candidateId, eligibleDrivers[])` | After liveness check passes; Registry passes full eligible pool, Reputation selects and assigns |
-| Reputation → Governance | `getUserTokensBatch(accounts[])` | Reputation queries DRV balances to sort eligible drivers by voting power during inspector selection |
-| Reputation → Registry | `registryActivateDriver(candidateId)` | Reputation notifies Registry when `confirmedCount >= _minConfirmations` |
+| Registry → Reputation | `inspectionAssign(...)` | Registry passes eligible pool. Reputation assigns OR bypasses if lacking drivers |
+| Reputation → Governance | `getUserTokensBatch(...)` | Reputation queries DRV balances to sort eligible drivers by voting power |
+| Reputation → Registry | `registryActivateDriver(...)` | Reputation notifies Registry when `confirmedCount == _minConfirmations` (or bootstrap) |
+| Reputation → Registry | `registryInspectionFailed(...)` | Reputation explicitly notifies Registry when inspection definitively fails |
 
 ---
 
@@ -436,7 +450,7 @@ canister_reputation/
 ├── math.mo               — Pure helper functions (timestamp arithmetic, etc.)
 └── worker.mo             — Heartbeat-driven background tasks:
                           · Reset call-rate counters every 24H
-                          · TODO: expire stale inspections (candidates in #PendingInspection; retry logic TBD)
+                          · Delete DriverInspectionDao records older than 30 days (cleanup staled/abandoned records left by Registry timeouts)
 
 tests/
 ├── tests.[module_name].mops       — Unit tests (per module)
@@ -474,5 +488,4 @@ system func postupgrade() {
 |------|----------|-------|
 | Inspector notification mechanism | High | Frontend must notify inspectors via OpenChat; on-chain trigger to be defined |
 | Inspector fee distribution | High | Mirror Gateway `DepositDao` pattern when `_inspectionFeePerInspector > 0` |
-| Inspection expiry / retry logic | Medium | What happens if all inspectors reject or fail to respond? Retry flow TBD |
 | Monitoring dashboard integration | Low | `supportCounters()` endpoint is ready; consumer to be defined |
