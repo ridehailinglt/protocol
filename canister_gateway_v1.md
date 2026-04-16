@@ -38,15 +38,15 @@ Key design properties:
 module Constants {
     public let GOVERNANCE_CANISTER_ID : Principal = Principal.fromText("...");
 
-    public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+    public let DEPOSIT_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
     public let GATEWAY_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
     public let CANISTER_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
 
-    public let QUARANTINE_EXPIRY_PERIOD : Nat64 = 6 * 30 * 24 * 60 * 60;  // 6 months in seconds
+    public let QUARANTINE_EXPIRY_PERIOD_SECONDS : Nat64 = 6 * 30 * 24 * 60 * 60;  // 6 months in seconds
     
-    public let GATEWAY_SYNC_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
-    public let GATEWAY_SYNC_ALL_PERIOD : Nat64 = 168 * 60 * 60;  // 168 hours in seconds
-    public let CLONE_SYNC_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+    public let GATEWAY_SYNC_PERIOD_SECONDS : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+    public let GATEWAY_SYNC_ALL_PERIOD_SECONDS : Nat64 = 168 * 60 * 60;  // 168 hours in seconds
+    public let CLONE_SYNC_PERIOD_SECONDS : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
     
     public let GATEWAY_SYNC_LIMIT : Nat64 = 4;  // 4 calls in 24 hours
     public let GATEWAY_SYNC_ALL_LIMIT : Nat64 = 2;  // 2 calls in 168 hours
@@ -76,7 +76,7 @@ module Types {
 
     /// Economic commitment required before a Gateway or Clone is accepted.
     /// If registration is never completed, the deposited funds are transferred
-    /// to the canister owner after DEPOSIT_EXPIRY_PERIOD (30) days (spam prevention, processed by worker.mo).
+    /// to the canister owner after DEPOSIT_EXPIRY_PERIOD_SECONDS (30) days (spam prevention, processed by worker.mo).
     public type DepositStatus = {
         #pending;
         #paid;

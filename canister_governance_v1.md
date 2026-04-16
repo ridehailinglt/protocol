@@ -44,17 +44,17 @@ module Constants {
    public let PAYMENT_CANISTER_ID     : Principal = Principal.fromText("...");
    public let AI_CANISTER_ID          : Principal = Principal.fromText("...");
 
-   public let VOTING_PERIOD_FAST : Nat64 = 3 * 24 * 60 * 60;  // 3 days in seconds
-   public let VOTING_PERIOD_SLOW : Nat64 = 5 * 24 * 60 * 60;  // 5 days in seconds
+   public let VOTING_PERIOD_SECONDS_FAST : Nat64 = 3 * 24 * 60 * 60;  // 3 days in seconds
+   public let VOTING_PERIOD_SECONDS_SLOW : Nat64 = 5 * 24 * 60 * 60;  // 5 days in seconds
    public let PROPOSAL_DEPOSIT : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
    public let INFLATION_RATE_WEEKLY : Float = 0.1/30 * 7;  // 10% monthly inflation distributed weekly 2.333%
 
-   public let DEPOSIT_EXPIRY_PERIOD : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
-   public let TOKENS_DISTRIBUTION_PERIOD : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+   public let DEPOSIT_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+   public let TOKENS_DISTRIBUTION_PERIOD_SECONDS : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
 
    // Not allowed to change via governance. Fixed buy design for security reasons.
    public let FOUNDER_SECURITY_BASE_PERCENT : Float = 50.0;  // 50% of total distributed tokens
-   public let FOUNDER_SECURITY_PERIOD : Nat64 = 5 * 365 * 24 * 60 * 60;  // 5 years in seconds
+   public let FOUNDER_SECURITY_PERIOD_SECONDS : Nat64 = 5 * 365 * 24 * 60 * 60;  // 5 years in seconds
 }
 ```
 
@@ -173,9 +173,8 @@ module Types {
 
     public type DepositStatus = {
         #Pending;   // Subaccount created; payment not yet confirmed
-        #Paid;      // Payment confirmed on ICP Ledger
-        #Consumed;  // Deposit used for its intended purpose
-        #Expired;   // 30-day window elapsed without payment; refund processed by worker.mo
+        #Paid;      // Payment confirmed on ICP Ledger; funds held by Governance
+        #Expired;   // 30-day window elapsed; funds swept to treasury by worker.mo
     };
 
     public type DepositDao = {
@@ -185,6 +184,8 @@ module Types {
         depositType : DepositType;   // Purpose of this deposit
         amount      : Nat64;         // Required amount in e8s (ICP smallest unit)
         status      : DepositStatus; // Default: #Pending
+        consumed    : Bool;          // true when deposit has been used for its intended purpose.
+                                     // Primary filter for active-deposit queries (cheaper than variant match).
         createdAt   : Timestamp;     // When the deposit record was created
     };
 
@@ -453,7 +454,7 @@ submitProposal(title, description, payload, depositId) -> Result<ProposalId, Err
   On success:
     - Register proposal with status = #Active.
     - Set votingEndsAt = now + voting period duration.
-    - Mark deposit status = #Consumed.
+    - Set deposit.consumed = true.
     - Return ProposalId.
 
   On any validation failure:
@@ -472,14 +473,14 @@ depositSubaccountGet(depositType : DepositType) -> Result<{ depositId : Nat64; s
 
   Validators (in order):
     1. depositType is a known type.
-    2. msg.caller does not already have an active #Pending or #Paid deposit of this type.
+    2. msg.caller does not already have an active deposit of this type (consumed = false, status = #Pending or #Paid).
 
   Logic:
     - For #ProposalDeposit: amount = PROPOSAL_DEPOSIT (from constants.mo).
     - For #DriverRegistration: call REGISTRY_CANISTER_ID.governanceGetConfig() to read driverRegistrationFee.
     - For #ReputationInspection: call REPUTATION_CANISTER_ID.governanceGetConfig() to read inspectionFeePerInspector.
     - Generate a unique Subaccount for this depositor + depositType.
-    - Create DepositDao with status = #Pending.
+    - Create DepositDao with status = #Pending, consumed = false.
     - Return { depositId, subaccount, amount } — UI shows this to the user.
 
   On any validation failure:
@@ -504,7 +505,7 @@ depositConfirmDriverRegistration(depositId : Nat64) -> Result<(), Text>
   On success:
     - Set deposit.status = #Paid.
     - Call REGISTRY_CANISTER_ID.registryDriverPaymentConfirmed(msg.caller).
-    - Set deposit.status = #Consumed.
+    - Keep deposit.status = #Paid (fee is HELD until driver reaches #Active).
     - Return #ok.
 
   On any validation failure:
@@ -513,7 +514,41 @@ depositConfirmDriverRegistration(depositId : Nat64) -> Result<(), Text>
 
 ---
 
-### 5.4 Cast Vote
+### 5.4 Refund Driver Registration Deposit
+
+```
+// Internal. msg.caller must match Registry canister principal.
+// Called by Registry inside registryActivateDriver() when driver status transitions to #Active.
+depositRefundDriverRegistration(driver : AccountId) -> Result<(), Text>
+
+  Validators (in order):
+    1. msg.caller must match REGISTRY_CANISTER_ID.
+    2. A deposit with depositType = #DriverRegistration, depositor = driver, status = #Paid, consumed = false exists.
+
+  On success:
+    - Transfer deposit.amount ICP from deposit.subaccount back to driver's principal.
+    - Set deposit.consumed = true.
+    - Return #ok.
+
+  On any validation failure:
+    - Return #err with descriptive Text.
+```
+
+---
+
+### 5.5 Get User Tokens Batch (Reputation query)
+
+```
+// query — called by Reputation canister during inspector selection.
+// Returns DRV balances for a list of accounts so Reputation can sort by voting power.
+getUserTokensBatch(accounts : [AccountId]) -> [(AccountId, Nat)]
+```
+
+Returns pairs of `(accountId, drvBalance)` for each provided account. Accounts not in `userTokens` return balance `0`.
+
+---
+
+### 5.6 Cast Vote
 
 ```
 // Public. Caller must be a registered driver with DRV balance > 0.
@@ -655,11 +690,13 @@ governanceGetAllConfigs() -> GovernanceAllConfigsResponse
 | Deposit types | `#ProposalDeposit`, `#DriverRegistration`, `#ReputationInspection` (extensible) |
 | Required amount | Depends on `depositType` — read live from target canister's `governanceGetConfig()` |
 | Verification | Governance checks ICP Ledger balance of `deposit.subaccount` |
-| Expiry window | 30 days from `createdAt` (`DEPOSIT_EXPIRY_PERIOD` in `constants.mo`) |
-| On expiry | `worker.mo` marks status = `#Expired`. Any paid-but-unclaimed funds transferred to Governance treasury. |
-| `#ProposalDeposit` accepted | Deposit status = `#Consumed`. Returned to proposer after `#Executed`. |
-| `#ProposalDeposit` rejected | Swept into protocol treasury. |
-| `#DriverRegistration` confirmed | Governance calls Registry `registryDriverPaymentConfirmed()`. Deposit = `#Consumed`. |
+| Expiry window | 30 days from `createdAt` (`DEPOSIT_EXPIRY_PERIOD_SECONDS` in `constants.mo`) |
+| On expiry | `worker.mo` marks status = `#Expired`. Any `#Paid` funds swept to Governance treasury. |
+| `#ProposalDeposit` accepted | Set `consumed = true`. Returned to proposer after `#Executed`. |
+| `#ProposalDeposit` rejected | Swept into protocol treasury. Set `consumed = true`. |
+| `#DriverRegistration` paid | Deposit status = `#Paid`, `consumed = false`. ICP held by Governance until driver reaches `#Active`. |
+| `#DriverRegistration` activated | Registry calls `depositRefundDriverRegistration()`. ICP returned to driver. Set `consumed = true`. |
+| `#DriverRegistration` expired | Driver record deleted by Registry worker. Governance worker sweeps deposit to treasury. Set `consumed = true`. |
 | One active deposit per type | A depositor may not open a second deposit of the same type while one is `#Pending` or `#Paid`. |
 
 ---
@@ -710,7 +747,7 @@ canister_governance/
 └── worker.mo       — Heartbeat-driven background tasks:
                     · distributeInflation() weekly
                     · Trigger executeProposal() for expired #Accepted proposals
-                    · Expire deposits: mark #Pending deposits as #Expired after DEPOSIT_EXPIRY_PERIOD
+                    · Expire deposits: mark #Pending deposits as #Expired after DEPOSIT_EXPIRY_PERIOD_SECONDS
                     · Refund expired #Paid deposits to depositor (or sweep to treasury per type rules)
                     · Performs cleaning tasks to keep canister state small
 

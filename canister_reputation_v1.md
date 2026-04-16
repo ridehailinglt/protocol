@@ -218,16 +218,20 @@ Returns `#ok` if the canister is alive and responsive. No fields are returned.
 ```
 // Internal. msg.caller must match Registry canister principal.
 // Called by Registry after a candidate driver passes liveness check (status → #PendingInspection).
-// Registry provides the candidate AccountId and the list of eligible inspector AccountIds.
-inspectionAssign(candidateId : AccountId, inspectors : [AccountId]) -> Result<[InspectionId], Text>
+// Registry passes ALL eligible drivers (active, same region, excluding candidate).
+// Reputation owns the full inspection lifecycle: selection, assignment, confirmation, fee distribution.
+inspectionAssign(candidateId : AccountId, eligibleDrivers : [AccountId]) -> Result<[InspectionId], Text>
 
   Validators (in order):
     1. msg.caller must match REGISTRY_CANISTER_ID.
-    2. inspectors is not empty and length <= _maxInspectors.
+    2. eligibleDrivers is not empty.
     3. candidateId has no existing #Pending inspections (idempotency guard).
 
-  On success:
-    - Create a DriverInspectionDao for each inspector with status = #Pending.
+  Logic:
+    - Call GOVERNANCE_CANISTER_ID.getUserTokensBatch(eligibleDrivers) to retrieve DRV balances.
+    - Sort eligibleDrivers by DRV balance descending (highest voting power first).
+    - Take the top min(len, _maxInspectors) drivers as the selected inspectors.
+    - Create a DriverInspectionDao for each selected inspector with status = #Pending.
     - Return the list of created InspectionIds.
 
   On any validation failure:
@@ -363,8 +367,8 @@ governanceUpdateInspectionFee(ReputationGovernanceUpdateInspectionFeeContract) -
 
 | Direction | Method | Purpose |
 |-----------|--------|---------|
-| Registry → Reputation | `inspectionAssign(candidateId, inspectors[])` | After liveness check passes; Registry delegates inspection creation |
-| Registry → Reputation | `inspectionStatus(candidateId)` | Registry queries inspection state for status decisions |
+| Registry → Reputation | `inspectionAssign(candidateId, eligibleDrivers[])` | After liveness check passes; Registry passes full eligible pool, Reputation selects and assigns |
+| Reputation → Governance | `getUserTokensBatch(accounts[])` | Reputation queries DRV balances to sort eligible drivers by voting power during inspector selection |
 | Reputation → Registry | `registryActivateDriver(candidateId)` | Reputation notifies Registry when `confirmedCount >= _minConfirmations` |
 
 ---
