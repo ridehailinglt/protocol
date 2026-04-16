@@ -38,19 +38,19 @@ Key design properties:
 module Constants {
     public let GOVERNANCE_CANISTER_ID : Principal = Principal.fromText("...");
 
-    public let DEPOSIT_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+    public let DEPOSIT_EXPIRY_PERIOD_SECONDS : Int = 30 * 24 * 60 * 60;  // 30 days in seconds
     public let GATEWAY_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
     public let CANISTER_REGISTRATION_FEE : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
 
-    public let QUARANTINE_EXPIRY_PERIOD_SECONDS : Nat64 = 6 * 30 * 24 * 60 * 60;  // 6 months in seconds
+    public let QUARANTINE_EXPIRY_PERIOD_SECONDS : Int = 6 * 30 * 24 * 60 * 60;  // 6 months in seconds
     
-    public let GATEWAY_SYNC_PERIOD_SECONDS : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
-    public let GATEWAY_SYNC_ALL_PERIOD_SECONDS : Nat64 = 168 * 60 * 60;  // 168 hours in seconds
-    public let CLONE_SYNC_PERIOD_SECONDS : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+    public let GATEWAY_SYNC_PERIOD_SECONDS : Int = 24 * 60 * 60;  // 24 hours in seconds
+    public let GATEWAY_SYNC_ALL_PERIOD_SECONDS : Int = 168 * 60 * 60;  // 168 hours in seconds
+    public let CLONE_SYNC_PERIOD_SECONDS : Int = 24 * 60 * 60;  // 24 hours in seconds
     
-    public let GATEWAY_SYNC_LIMIT : Nat64 = 4;  // 4 calls in 24 hours
-    public let GATEWAY_SYNC_ALL_LIMIT : Nat64 = 2;  // 2 calls in 168 hours
-    public let CLONE_SYNC_LIMIT : Nat64 = 1;  // 1 call in 24 hours
+    public let GATEWAY_SYNC_LIMIT : Nat32 = 4;  // 4 calls in 24 hours
+    public let GATEWAY_SYNC_ALL_LIMIT : Nat32 = 2;  // 2 calls in 168 hours
+    public let CLONE_SYNC_LIMIT : Nat32 = 1;  // 1 call in 24 hours
 }
 ```
 
@@ -66,7 +66,7 @@ module Types {
     public type CanisterId  = Principal;
     public type City        = Text;
     public type Country     = Text;
-    public type Timestamp   = Nat64;   // nanoseconds since Unix epoch (ICP Ledger standard)
+    public type Timestamp   = Int;   // nanoseconds since Unix epoch (ICP Ledger standard)
     public type Subaccount  = Blob;    // 32-byte unique subaccount identifier
 
 
@@ -121,7 +121,7 @@ module Types {
         quarantineUntil  : Timestamp;  // Quarantine lasts 6 months from registeredAt. Cannot add Gateways during this period.
         quarantineReason : Text;       // Initial value: "first registration"
         lastSyncAt       : Timestamp;
-        counterNotSynced : Nat;        // Incremented +1 per day by worker.mo if no sync received. Max meaningful value: 30.
+        counterNotSynced : Nat32;        // Incremented +1 per day by worker.mo if no sync received. Max meaningful value: 30.
         isActive         : Bool;
     };
 
@@ -174,7 +174,7 @@ module Types {
         city             : City;
         registeredAt     : Timestamp;
         lastSyncAt       : Timestamp;
-        counterNotSynced : Nat;        // Incremented +1 per day by worker.mo if no sync received. Max meaningful value: 30.
+        counterNotSynced : Nat32;        // Incremented +1 per day by worker.mo if no sync received. Max meaningful value: 30.
         isActive        : Bool;
     };
 
@@ -225,16 +225,16 @@ module Types {
     /// All live configurable values for the Gateway canister.
     /// Returned by governanceGetConfig() composite query via Governance.
     public type GatewayGovernanceConfig = {
-        gatewayRegistrationFee  : Nat;
-        canisterRegistrationFee : Nat;
-        depositExpiryPeriod     : Nat;
-        quarantineExpiryPeriod  : Nat;
-        gatewaySyncPeriod       : Nat;
-        gatewaySyncAllPeriod    : Nat;
-        cloneSyncPeriod         : Nat;
-        gatewaySyncLimit        : Nat;
-        gatewaySyncAllLimit     : Nat;
-        cloneSyncLimit          : Nat;
+        gatewayRegistrationFee  : Nat64;
+        canisterRegistrationFee : Nat64;
+        depositExpiryPeriod     : Int;
+        quarantineExpiryPeriod  : Int;
+        gatewaySyncPeriod       : Int;
+        gatewaySyncAllPeriod    : Int;
+        cloneSyncPeriod         : Int;
+        gatewaySyncLimit        : Nat32;
+        gatewaySyncAllLimit     : Nat32;
+        cloneSyncLimit          : Nat32;
     };
 
 
@@ -245,12 +245,12 @@ module Types {
     /// Snapshot of call counters. Exposed via supportCounters() for external monitoring.
     /// Counters are reset every 24H by worker.mo.
     public type SupportCounters = {
-        gatewayRegister         : Nat;
-        gatewayRegisterInternal : Nat;
-        gatewaySync             : Nat;
-        gatewaySyncAll          : Nat;
-        cloneRegister           : Nat;
-        cloneSync               : Nat;
+        gatewayRegister         : Nat32;
+        gatewayRegisterInternal : Nat32;
+        gatewaySync             : Nat32;
+        gatewaySyncAll          : Nat32;
+        cloneRegister           : Nat32;
+        cloneSync               : Nat32;
     };
 }
 ```
@@ -265,9 +265,9 @@ module Types {
 
   // Used from Governance canister to change gateway canister fees for gateway and for canister registration
   GatewayGovernanceUpdateFeeContract = {
-      gatewayRegistrationFee : Nat;
-      canisterRegistrationFee : Nat;
-      depositExpiryPeriod : Nat;
+      gatewayRegistrationFee : Nat64;
+      canisterRegistrationFee : Nat64;
+      depositExpiryPeriod : Int;
   }
 
   GatewayGovernanceUpdateFeeResponse = {
@@ -277,10 +277,10 @@ module Types {
 
   // Used from Governance canister to change gateway canister periods for gateway and for canister registration
   GatewayGovernanceUpdatePeriodsContract = {
-      quarantineExpiryPeriod : Nat;
-      gatewaySyncPeriod : Nat;
-      gatewaySyncAllPeriod : Nat;
-      cloneSyncPeriod : Nat;
+      quarantineExpiryPeriod : Int;
+      gatewaySyncPeriod : Int;
+      gatewaySyncAllPeriod : Int;
+      cloneSyncPeriod : Int;
   }
 
   GatewayGovernanceUpdatePeriodsResponse = {
@@ -289,9 +289,9 @@ module Types {
   }
 
   GatewayGovernanceUpdateLimitsContract = {
-      gatewaySyncLimit : Nat;
-      gatewaySyncAllLimit : Nat;
-      cloneSyncLimit : Nat;
+      gatewaySyncLimit : Nat32;
+      gatewaySyncAllLimit : Nat32;
+      cloneSyncLimit : Nat32;
   }
 
   GatewayGovernanceUpdateLimitsResponse = {

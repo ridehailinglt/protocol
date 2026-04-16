@@ -53,28 +53,28 @@ module Constants {
     public let RIDER_REGISTRATION_FEE  : Nat64 = 0;  // TODO: decide fee via governance
 
     // Activity lifecycle
-    public let INACTIVE_THRESHOLD_DAYS   : Nat64 = 90 * 24 * 60 * 60;   // 90 days in seconds
-    public let SUSPENSION_EXPIRY_PERIOD_SECONDS  : Nat64 = 30 * 24 * 60 * 60;   // 30 days in seconds
+    public let INACTIVE_THRESHOLD_PERIOD_SECONDS   : Int = 90 * 24 * 60 * 60;   // 90 days in seconds
+    public let SUSPENSION_EXPIRY_PERIOD_SECONDS  : Int = 30 * 24 * 60 * 60;   // 30 days in seconds
 
     // Limits, must be adjusted buy country/city
-    public let MAX_ACTIVE_DRIVERS_PER_WEEK : Nat64 = 500;
-    public let MAX_ACTIVE_DRIVERS_PER_MONTH : Nat64 = 1000;
+    public let MAX_ACTIVE_DRIVERS_PER_WEEK : Nat32 = 500;
+    public let MAX_ACTIVE_DRIVERS_PER_MONTH : Nat32 = 1000;
 
     public let MAX_FOREIGNERS_REGISTERED_PERCENT : Float = 20.0;
 
     //Cleanup
-    public let INACTIVE_DRIVER_PRUNING_PERIOD_SECONDS : Nat64 = 90 * 24 * 60 * 60;   // 90 days in seconds
+    public let INACTIVE_DRIVER_PRUNING_PERIOD_SECONDS : Int = 90 * 24 * 60 * 60;   // 90 days in seconds
     public let INACTIVE_DRIVER_MINIMAL_PERCENTVOTING_POWER : Float = 0.1; // 0.1% of total voting power
 
     // Registration expiry — drivers stuck in #Pending (fee unpaid) are deleted after this period.
-    public let PENDING_REGISTRATION_EXPIRY_PERIOD_SECONDS  : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+    public let PENDING_REGISTRATION_EXPIRY_PERIOD_SECONDS  : Int = 30 * 24 * 60 * 60;  // 30 days in seconds
 
     // Liveness expiry — drivers stuck in #PendingLiveness (fee paid, liveness not completed) are deleted.
     // Registration fee is NOT refunded. Driver re-registers from scratch.
-    public let PENDING_LIVENESS_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+    public let PENDING_LIVENESS_EXPIRY_PERIOD_SECONDS : Int = 30 * 24 * 60 * 60;  // 30 days in seconds
 
     // Inspection expiry — drivers stuck in #PendingInspection without confirmation are deleted.
-    public let PENDING_INSPECTION_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
+    public let PENDING_INSPECTION_EXPIRY_PERIOD_SECONDS : Int = 30 * 24 * 60 * 60;  // 30 days in seconds
 }
 ```
 
@@ -89,7 +89,7 @@ module Types {
 
     public type CanisterId    = Principal;
     public type AccountId     = Principal;
-    public type Timestamp     = Nat64;   // nanoseconds since Unix epoch (ICP Ledger standard)
+    public type Timestamp     = Int;   // nanoseconds since Unix epoch (ICP Ledger standard)
     public type LivenessHash  = Blob;    // DecideAI proof-of-humanity hash. No raw document data stored.
     public type Region        = { city : Text; country : Text };
 
@@ -130,7 +130,7 @@ module Types {
         address            : Text;
         carMake            : Text;
         carModel           : Text;
-        carYear            : Nat;
+        carYear            : Nat32;
         carPlate           : Text;
         openChatHandle     : Text;           // Required: used by inspectors to initiate video calls
         // --- Region & routing ---
@@ -164,7 +164,7 @@ module Types {
         address        : Text;
         carMake        : Text;
         carModel       : Text;
-        carYear        : Nat;
+        carYear        : Nat32;
         carPlate       : Text;
         openChatHandle : Text;
         region         : Region;
@@ -249,10 +249,10 @@ module Types {
     /// Snapshot of call counters. Exposed via supportCounters() for external monitoring.
     /// Counters are reset every 24H by worker.mo.
     public type SupportCounters = {
-        driverRegister : Nat;
-        riderRegister  : Nat;
-        driverLookup   : Nat;
-        riderLookup    : Nat;
+        driverRegister : Nat32;
+        riderRegister  : Nat32;
+        driverLookup   : Nat32;
+        riderLookup    : Nat32;
     };
 }
 ```
@@ -267,8 +267,8 @@ module Types {
 
     /// Payload for governanceUpdateFees — adjusts registration fees.
     public type RegistryGovernanceUpdateFeesContract = {
-        driverRegistrationFee : Nat;
-        riderRegistrationFee  : Nat;
+        driverRegistrationFee : Nat64;
+        riderRegistrationFee  : Nat64;
     };
 
     public type RegistryGovernanceUpdateFeesResponse = {
@@ -307,8 +307,8 @@ module Types {
     /// All live configurable values for the Registry canister.
     /// Returned by governanceGetConfig() composite query via Governance.
     public type RegistryGovernanceConfig = {
-        driverRegistrationFee : Nat;
-        riderRegistrationFee  : Nat;
+        driverRegistrationFee : Nat64;
+        riderRegistrationFee  : Nat64;
     };
 
 }
@@ -330,14 +330,14 @@ regionMappings : TrieMap<Text, RegionMappingDao>    // key: "city:country"
 ```motoko
 // main.mo
 // --- Call counters (reset every 24H by worker.mo) ---
-var _counterDriverRegister : Nat = 0;
-var _counterRiderRegister  : Nat = 0;
-var _counterDriverLookup   : Nat = 0;
-var _counterRiderLookup    : Nat = 0;
+var _counterDriverRegister : Nat32 = 0;
+var _counterRiderRegister  : Nat32 = 0;
+var _counterDriverLookup   : Nat32 = 0;
+var _counterRiderLookup    : Nat32 = 0;
 
 // --- Version (incremented on every canister upgrade) ---
 // Used in postupgrade migrations to detect state schema changes.
-var _version : Nat = 1;
+var _version : Nat32 = 1;
 ```
 
 ---
@@ -830,7 +830,7 @@ canister_registry/
                             (checked via pendingLivenessAt; fee is forfeited; driver re-registers from scratch)
                           · Delete #PendingInspection driver registrations older than PENDING_INSPECTION_EXPIRY_PERIOD_SECONDS
                             (checked via pendingInspectionAt; fee is forfeited; driver re-registers from scratch)
-                          · TODO: mark inactive drivers (lastActiveAt > INACTIVE_THRESHOLD_DAYS)
+                          · TODO: mark inactive drivers (lastActiveAt > INACTIVE_THRESHOLD_PERIOD_SECONDS)
 
 tests/
 ├── tests.[module_name].mops       — Unit tests (per module)

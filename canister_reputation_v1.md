@@ -24,7 +24,7 @@ Key design properties:
 |------|-----------|
 | **Inspection** | A peer-review process where 1–3 active drivers verify a candidate via OpenChat video call. |
 | **Inspector** | An active driver with voting power, randomly selected to conduct a peer inspection video call. |
-| **InspectionId** | A unique `Nat64` identifier for a single inspection record. |
+| **InspectionId** | A unique `Nat32` identifier for a single inspection record. |
 | **InspectionStatus** | The state of a single inspection record: `#Pending`, `#Confirmed`, `#Rejected`. |
 | **Candidate** | The driver being inspected (identified by `AccountId`). |
 | **Confirmation threshold** | `_minConfirmations` — the minimum number of `#Confirmed` outcomes required to activate a candidate driver. |
@@ -59,8 +59,8 @@ module Types {
 
     public type CanisterId   = Principal;
     public type AccountId    = Principal;
-    public type Timestamp    = Nat64;   // nanoseconds since Unix epoch (ICP Ledger standard)
-    public type InspectionId = Nat64;
+    public type Timestamp    = Int;   // nanoseconds since Unix epoch (ICP Ledger standard)
+    public type InspectionId = Nat32;
 
 
     // ==========================================
@@ -99,9 +99,9 @@ module Types {
     public type InspectionStatusContract = {
         candidateId         : AccountId;
         inspectionIds       : [InspectionId];
-        confirmedCount      : Nat;
-        rejectedCount       : Nat;
-        pendingCount        : Nat;
+        confirmedCount      : Nat32;
+        rejectedCount       : Nat32;
+        pendingCount        : Nat32;
         candidateActivated  : Bool;   // true if confirmedCount >= _minConfirmations
     };
 
@@ -118,10 +118,10 @@ module Types {
     /// Snapshot of call counters. Exposed via supportCounters() for external monitoring.
     /// Counters are reset every 24H by worker.mo.
     public type SupportCounters = {
-        inspectionAssigned : Nat;
-        inspectionConfirmed: Nat;
-        inspectionRejected : Nat;
-        statusQueries      : Nat;
+        inspectionAssigned : Nat32;
+        inspectionConfirmed: Nat32;
+        inspectionRejected : Nat32;
+        statusQueries      : Nat32;
     };
 }
 ```
@@ -136,22 +136,22 @@ module Types {
 
     /// Payload for governanceUpdateInspectorCount — adjusts required confirmation count.
     public type ReputationGovernanceUpdateInspectorCountContract = {
-        minConfirmations : Nat;  // Min inspectors required (1–3)
-        maxInspectors    : Nat;  // Max inspectors assigned per candidate (1–3)
+        minConfirmations : Nat32;  // Min inspectors required (1–3)
+        maxInspectors    : Nat32;  // Max inspectors assigned per candidate (1–3)
     };
 
     public type ReputationGovernanceUpdateInspectorCountResponse = {
-        #ok  : { minConfirmations : Nat; maxInspectors : Nat };
+        #ok  : { minConfirmations : Nat32; maxInspectors : Nat32 };
         #err : Text;
     };
 
     /// Payload for governanceUpdateInspectionFee — adjusts inspector payout.
     public type ReputationGovernanceUpdateInspectionFeeContract = {
-        inspectionFeePerInspector : Nat;  // ICP e8s paid to each confirming inspector
+        inspectionFeePerInspector : Nat64;  // ICP e8s paid to each confirming inspector
     };
 
     public type ReputationGovernanceUpdateInspectionFeeResponse = {
-        #ok  : { inspectionFeePerInspector : Nat };
+        #ok  : { inspectionFeePerInspector : Nat64 };
         #err : Text;
     };
 
@@ -163,9 +163,9 @@ module Types {
     /// All live configurable values for the Reputation canister.
     /// Returned by governanceGetConfig() composite query via Governance.
     public type ReputationGovernanceConfig = {
-        minConfirmations          : Nat;
-        maxInspectors             : Nat;
-        inspectionFeePerInspector : Nat;
+        minConfirmations          : Nat32;
+        maxInspectors             : Nat32;
+        inspectionFeePerInspector : Nat64;
     };
 
 }

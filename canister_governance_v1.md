@@ -44,17 +44,17 @@ module Constants {
    public let PAYMENT_CANISTER_ID     : Principal = Principal.fromText("...");
    public let AI_CANISTER_ID          : Principal = Principal.fromText("...");
 
-   public let VOTING_PERIOD_SECONDS_FAST : Nat64 = 3 * 24 * 60 * 60;  // 3 days in seconds
-   public let VOTING_PERIOD_SECONDS_SLOW : Nat64 = 5 * 24 * 60 * 60;  // 5 days in seconds
+   public let VOTING_PERIOD_SECONDS_FAST : Int = 3 * 24 * 60 * 60;  // 3 days in seconds
+   public let VOTING_PERIOD_SECONDS_SLOW : Int = 5 * 24 * 60 * 60;  // 5 days in seconds
    public let PROPOSAL_DEPOSIT : Nat64 = 10 * 100_000_000;  // 10 ICP in e8s
    public let INFLATION_RATE_WEEKLY : Float = 0.1/30 * 7;  // 10% monthly inflation distributed weekly 2.333%
 
-   public let DEPOSIT_EXPIRY_PERIOD_SECONDS : Nat64 = 30 * 24 * 60 * 60;  // 30 days in seconds
-   public let TOKENS_DISTRIBUTION_PERIOD_SECONDS : Nat64 = 24 * 60 * 60;  // 24 hours in seconds
+   public let DEPOSIT_EXPIRY_PERIOD_SECONDS : Int = 30 * 24 * 60 * 60;  // 30 days in seconds
+   public let TOKENS_DISTRIBUTION_PERIOD_SECONDS : Int = 24 * 60 * 60;  // 24 hours in seconds
 
    // Not allowed to change via governance. Fixed buy design for security reasons.
    public let FOUNDER_SECURITY_BASE_PERCENT : Float = 50.0;  // 50% of total distributed tokens
-   public let FOUNDER_SECURITY_PERIOD_SECONDS : Nat64 = 5 * 365 * 24 * 60 * 60;  // 5 years in seconds
+   public let FOUNDER_SECURITY_PERIOD_SECONDS : Int = 5 * 365 * 24 * 60 * 60;  // 5 years in seconds
 }
 ```
 
@@ -70,8 +70,8 @@ module Types {
 
     public type CanisterId  = Principal;
     public type AccountId   = Principal;
-    public type ProposalId  = Nat64;
-    public type Timestamp   = Nat64;   // nanoseconds since Unix epoch (ICP Ledger standard)
+    public type ProposalId  = Nat32;
+    public type Timestamp   = Int;   // nanoseconds since Unix epoch (ICP Ledger standard)
     public type Subaccount  = Blob;    // 32-byte unique subaccount identifier
 
 
@@ -135,8 +135,8 @@ module Types {
 
     public type UserTokensDao = {
         owner      : AccountId;
-        balance    : Nat;
-        tripCount  : Nat;
+        balance    : Nat64;
+        tripCount  : Nat32;
         lastActive : Timestamp;
     };
 
@@ -196,8 +196,8 @@ module Types {
         description       : Text;
         payload           : ProposalPayloadDao;
         status            : ProposalStatus;
-        votesFor          : Nat;
-        votesAgainst      : Nat;
+        votesFor          : Nat64;
+        votesAgainst      : Nat64;
         createdAt         : Timestamp;
         votingEndsAt      : Timestamp;
     };
@@ -210,7 +210,7 @@ module Types {
         voter       : AccountId;
         proposalId  : ProposalId;
         voteType    : { #Approve; #Reject };
-        votingPower : Nat;  // Snapshot of the voter's DRV balance at the time of voting
+        votingPower : Nat64;  // Snapshot of the voter's DRV balance at the time of voting
     };
 
 
@@ -250,7 +250,7 @@ module Types {
 
     /// Payload for governanceUpdateFee — adjusts Gateway and Clone registration fees.
     public type GovernanceGovernanceUpdateFeeContract = {
-        proposalDeposit : Nat;
+        proposalDeposit : Nat64;
     };
 
     public type GovernanceGovernanceUpdateFeeResponse = {
@@ -264,8 +264,8 @@ module Types {
 
     /// Payload for registryGovernanceUpdateFees — adjusts driver/rider registration fees.
     public type RegistryGovernanceUpdateFeesContract = {
-        driverRegistrationFee : Nat;
-        riderRegistrationFee  : Nat;
+        driverRegistrationFee : Nat64;
+        riderRegistrationFee  : Nat64;
     };
 
     public type RegistryGovernanceUpdateFeesResponse = {
@@ -298,8 +298,8 @@ module Types {
 
     /// Config record — mirrors RegistryGovernanceConfig in canister_registry_v1.md.
     public type RegistryGovernanceConfig = {
-        driverRegistrationFee : Nat;
-        riderRegistrationFee  : Nat;
+        driverRegistrationFee : Nat64;
+        riderRegistrationFee  : Nat64;
     };
 
 
@@ -309,18 +309,18 @@ module Types {
 
     /// Payload for reputationGovernanceUpdateInspectorCount.
     public type ReputationGovernanceUpdateInspectorCountContract = {
-        minConfirmations : Nat;  // Min inspectors that must confirm (1–3)
-        maxInspectors    : Nat;  // Max inspectors assigned per candidate (1–3)
+        minConfirmations : Nat32;  // Min inspectors that must confirm (1–3)
+        maxInspectors    : Nat32;  // Max inspectors assigned per candidate (1–3)
     };
 
     public type ReputationGovernanceUpdateInspectorCountResponse = {
-        #ok  : { minConfirmations : Nat; maxInspectors : Nat };
+        #ok  : { minConfirmations : Nat32; maxInspectors : Nat32 };
         #err : Text;
     };
 
     /// Payload for reputationGovernanceUpdateInspectionFee.
     public type ReputationGovernanceUpdateInspectionFeeContract = {
-        inspectionFeePerInspector : Nat;  // ICP e8s paid to each confirming inspector
+        inspectionFeePerInspector : Nat64;  // ICP e8s paid to each confirming inspector
     };
 
     public type ReputationGovernanceUpdateInspectionFeeResponse = {
@@ -330,9 +330,9 @@ module Types {
 
     /// Config record — mirrors ReputationGovernanceConfig in canister_reputation_v1.md.
     public type ReputationGovernanceConfig = {
-        minConfirmations          : Nat;
-        maxInspectors             : Nat;
-        inspectionFeePerInspector : Nat;
+        minConfirmations          : Nat32;
+        maxInspectors             : Nat32;
+        inspectionFeePerInspector : Nat64;
     };
 
 
@@ -342,9 +342,9 @@ module Types {
 
     /// Payload for governanceUpdateFee — adjusts Gateway and Clone registration fees.
     public type GatewayGovernanceUpdateFeeContract = {
-        gatewayRegistrationFee  : Nat;
-        canisterRegistrationFee : Nat;
-        depositExpiryPeriod     : Nat;
+        gatewayRegistrationFee  : Nat64;
+        canisterRegistrationFee : Nat64;
+        depositExpiryPeriod     : Nat64;
     };
 
     public type GatewayGovernanceUpdateFeeResponse = {
@@ -354,10 +354,10 @@ module Types {
 
     /// Payload for governanceUpdatePeriods — adjusts sync and quarantine durations.
     public type GatewayGovernanceUpdatePeriodsContract = {
-        quarantineExpiryPeriod : Nat;
-        gatewaySyncPeriod      : Nat;
-        gatewaySyncAllPeriod   : Nat;
-        cloneSyncPeriod        : Nat;
+        quarantineExpiryPeriod : Nat64;
+        gatewaySyncPeriod      : Nat64;
+        gatewaySyncAllPeriod   : Nat64;
+        cloneSyncPeriod        : Nat64;
     };
 
     public type GatewayGovernanceUpdatePeriodsResponse = {
@@ -367,9 +367,9 @@ module Types {
 
     /// Payload for governanceUpdateLimits — adjusts call-rate limits.
     public type GatewayGovernanceUpdateLimitsContract = {
-        gatewaySyncLimit    : Nat;
-        gatewaySyncAllLimit : Nat;
-        cloneSyncLimit      : Nat;
+        gatewaySyncLimit    : Nat32;
+        gatewaySyncAllLimit : Nat32;
+        cloneSyncLimit      : Nat32;
     };
 
     public type GatewayGovernanceUpdateLimitsResponse = {
@@ -379,16 +379,16 @@ module Types {
 
     /// Config record — mirrors GatewayGovernanceConfig in canister_gateway_v1.md.
     public type GatewayGovernanceConfig = {
-        gatewayRegistrationFee  : Nat;
-        canisterRegistrationFee : Nat;
-        depositExpiryPeriod     : Nat;
-        quarantineExpiryPeriod  : Nat;
-        gatewaySyncPeriod       : Nat;
-        gatewaySyncAllPeriod    : Nat;
-        cloneSyncPeriod         : Nat;
-        gatewaySyncLimit        : Nat;
-        gatewaySyncAllLimit     : Nat;
-        cloneSyncLimit          : Nat;
+        gatewayRegistrationFee  : Nat64;
+        canisterRegistrationFee : Nat64;
+        depositExpiryPeriod     : Nat64;
+        quarantineExpiryPeriod  : Nat64;
+        gatewaySyncPeriod       : Nat64;
+        gatewaySyncAllPeriod    : Nat64;
+        cloneSyncPeriod         : Nat64;
+        gatewaySyncLimit        : Nat32;
+        gatewaySyncAllLimit     : Nat32;
+        cloneSyncLimit          : Nat32;
     };
 
     /// Payload for governanceQuarantine — quarantine or lift quarantine on a Gateway.
@@ -420,8 +420,8 @@ userTokens : TrieMap<AccountId, UserTokensDao>
 proposals  : TrieMap<ProposalId, ProposalDao>
 
 // Multipurpose deposit store — all deposit records regardless of type.
-// Key: DepositDao.id (auto-incremented Nat64)
-deposits   : TrieMap<Nat64, DepositDao>
+// Key: DepositDao.id (auto-incremented Nat)
+deposits   : TrieMap<Nat, DepositDao>
 ```
 ---
 
